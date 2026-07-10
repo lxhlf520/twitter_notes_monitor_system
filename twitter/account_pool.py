@@ -295,6 +295,7 @@ class AccountPool:
         cooldown_after_3_fails: int = 1800,      # 30 分钟
         cooldown_after_5_fails: int = 7200,      # 2 小时
         cooldown_after_10_fails: int = 86400,    # 24 小时
+        min_interval: float = 0,                  # 单账号最小请求间隔（秒），0 表示不限速
     ):
         """
         初始化账号池
@@ -305,15 +306,18 @@ class AccountPool:
             cooldown_after_3_fails: 连续失败 3 次后的冷却秒数
             cooldown_after_5_fails: 连续失败 5 次后的冷却秒数
             cooldown_after_10_fails: 连续失败 10 次后的冷却秒数
+            min_interval: 单账号最小请求间隔（秒），0 表示不限速
         """
         self.storage = storage
         self._proxy = proxy
+        self._min_interval = min_interval
         self.cooldown_config = {
             3: cooldown_after_3_fails,
             5: cooldown_after_5_fails,
             10: cooldown_after_10_fails,
         }
         self._last_used_username: Optional[str] = None
+        self._last_request_time: Dict[str, datetime] = {}  # 单账号限速追踪
         self._consecutive_failures: Dict[str, int] = {}  # 账号连续失败次数
         self._accounts: Dict[str, Account] = {}  # 内存中的账号池
         self._sessions: Dict[str, AccountSession] = {}  # 账号独立 Session 缓存
@@ -349,19 +353,29 @@ class AccountPool:
         """将单个账号更新到数据库"""
         self.storage.update_account_from_model(account)
 
+    def set_rate_limit_interval(self, interval: float) -> None:
+        """动态调整单账号速率限制间隔"""
+        self._min_interval = interval
+
     def get_next_account(self) -> Optional[Account]:
         """
-        获取下一个可用账号（轮询模式，从内存中获取）
+        获取下一个可用账号（轮询模式 + 速率限制，从内存中获取）
 
         Returns:
             Account 对象，如果没有可用账号则返回 None
         """
         now = datetime.utcnow()
+        min_interval = self._min_interval
 
-        # 从内存中获取可用账号
+        # 从内存中获取可用账号（并发安全：GIL 保护 dict 操作）
         available_accounts = [
             acc for acc in self._accounts.values()
-            if acc.enabled and (acc.cooldown_until is None or acc.cooldown_until < now)
+            if acc.enabled
+            and (acc.cooldown_until is None or acc.cooldown_until < now)
+            and (
+                acc.username not in self._last_request_time
+                or (now - self._last_request_time[acc.username]).total_seconds() >= min_interval
+            )
         ]
 
         if not available_accounts:
@@ -383,6 +397,7 @@ class AccountPool:
                 account = available_accounts[0]
 
         self._last_used_username = account.username
+        self._last_request_time[account.username] = now
         return account
 
     def set_proxy(self, proxy: str | None) -> None:

@@ -35,7 +35,7 @@ new_to_helpful_max_days = 14            # 变成helpful后追踪14天
 helpful_interval_seconds = 7200   # 2小时
 helpful_max_days = 14             # 最多追踪14天
 # 工作线程数
-max_workers = 20
+max_workers = 100
 [proxy]
 url = "http://127.0.0.1:7890"
 
@@ -44,6 +44,9 @@ url = "http://127.0.0.1:7890"
 cooldown_after_3_fails = 1800      # 连续失败 3 次后冷却 30 分钟
 cooldown_after_5_fails = 7200      # 连续失败 5 次后冷却 2 小时
 cooldown_after_10_fails = 86400    # 连续失败 10 次后冷却 24 小时
+
+# 单账号最小请求间隔（秒），默认 0.5s = 120 req/min，远低于 Twitter 1500/15min 上限
+per_account_min_interval = 0.5
 
 # 账号列表（可选，如果数据库为空则使用 twitter.cookie 作为 fallback）
 # [[account.accounts]]

@@ -152,6 +152,10 @@ def main():
     client: Client = None
     account_pool = None
     if not rpc_mode:
+        # 读取速率限制配置
+        per_account_min_interval = config.get("account", {}).get("per_account_min_interval", 0)
+        max_workers = config.get("monitor", {}).get("max_workers", 100)
+
         # 初始化账号池
         account_pool = AccountPool(
             storage=storage,
@@ -159,13 +163,15 @@ def main():
             cooldown_after_3_fails=config.get("account", {}).get("cooldown_after_3_fails", 1800),
             cooldown_after_5_fails=config.get("account", {}).get("cooldown_after_5_fails", 7200),
             cooldown_after_10_fails=config.get("account", {}).get("cooldown_after_10_fails", 86400),
+            min_interval=per_account_min_interval,
         )
         account_pool.load_accounts_from_db()
         client = Client(proxy=proxy_url, account_pool=account_pool, storage=client_storage)
         client.init_client()
         # 输出账号池统计
         pool_stats = account_pool.get_account_stats()
-        logger.info(f"Account pool: {pool_stats['total']} total, {pool_stats['available']} available")
+        logger.info(f"账号池: {pool_stats['total']} total, {pool_stats['available']} available, "
+                   f"min_interval={per_account_min_interval}s, max_workers={max_workers}")
 
         # Cookie 有效性校验：自动禁用无效账号
         if pool_stats['total'] > 0:
