@@ -267,15 +267,41 @@ class Monitor:
                         else:
                             self.storage.save_helpful_metrics(metrics)
 
+                        # 记录更新成功
+                        self.storage.save_update_record(
+                            post_id, source, "success",
+                            metrics=metrics
+                        )
+
                         return True
+                    else:
+                        # 推文不存在（已删除/不可见），标记并记录
+                        logger.warning(f"推文 {post_id} 不存在（可能已删除），正在标记...")
+                        self.storage.mark_post_deleted(post_id, source)
+                        self.storage.save_update_record(
+                            post_id, source, "deleted",
+                            error="Tweet not found (possibly deleted)"
+                        )
+                        return False
 
                 except Exception as e:
                     pid = post.get('post_id') or post.get('tweet_id', 'unknown')
+                    error_msg = f"{type(e).__name__}: {e}"
                     logger.error(
-                        f"Failed to update {pid}: {type(e).__name__}: {e}",
+                        f"Failed to update {pid}: {error_msg}",
                         exc_info=True,
                     )
-                    errors.append(f"Failed to update {pid}: {type(e).__name__}: {e}")
+                    errors.append(f"Failed to update {pid}: {error_msg}")
+
+                    # 记录更新失败
+                    try:
+                        self.storage.save_update_record(
+                            pid, source, "failed",
+                            error=error_msg
+                        )
+                    except Exception:
+                        pass
+
                     return False
 
             # 使用类属性线程池并发更新

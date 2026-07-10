@@ -33,6 +33,7 @@ class Storage:
         self._api_raw: Optional[Collection] = None             # x_com_api_raw
         self._health_snapshots: Optional[Collection] = None      # x_com_health_snapshots
         self._sig_cache: Optional[Collection] = None              # x_com_signature_cache
+        self._update_status: Optional[Collection] = None          # x_com_post_update_status
 
     def connect(self):
         """连接 MongoDB 并初始化四个集合"""
@@ -62,6 +63,7 @@ class Storage:
         self._api_raw = self._db["x_com_api_raw"]
         self._health_snapshots = self._db["x_com_health_snapshots"]
         self._sig_cache = self._db["x_com_signature_cache"]
+        self._update_status = self._db["x_com_post_update_status"]
 
         # 自动初始化集合（确保集合存在）
         self._ensure_collections_exist()
@@ -81,7 +83,7 @@ class Storage:
                                  "x_com_post_helpful", "x_com_post_helpful_metrics",
                                  "x_com_notes", "x_com_contributors",
                                  "twitter_accounts", "x_com_api_raw", "x_com_health_snapshots",
-                                 "x_com_signature_cache"]:
+                                 "x_com_signature_cache", "x_com_post_update_status"]:
             try:
                 # 使用 list_collections 检查集合是否存在
                 collections = self._db.list_collection_names(filter={"name": collection_name})
@@ -129,6 +131,10 @@ class Storage:
         # 签名缓存表索引：按 username 查询，端点参数按 _type 查询
         self._sig_cache.create_index("username", unique=True, sparse=True)
         self._sig_cache.create_index("_type")
+
+        # 更新状态表索引：post_id + 时间倒序，便于按推文查询更新历史
+        self._update_status.create_index([("post_id", 1), ("captured_at", -1)])
+        self._update_status.create_index("status")
 
     def close(self):
         """关闭连接"""
@@ -684,3 +690,127 @@ class Storage:
         if doc:
             return doc.get("params")
         return None
+
+    # ==================== 更新状态记录相关方法 ====================
+
+    def save_update_record(self, post_id: str, source: str, status: str,
+                           error: Optional[str] = None,
+                           metrics: Optional[Dict[str, Any]] = None) -> None:
+        """
+        记录一条推文指标的更新状态到 x_com_post_update_status 集合。
+
+        Args:
+            post_id: 推文 ID
+            source: 数据源（new / helpful）
+            status: 状态（success / failed / deleted）
+            error: 失败时的错误信息
+            metrics: 成功时的指标快照
+        """
+        record = {
+            "post_id": post_id,
+            "source": source,
+            "status": status,
+            "captured_at": int(datetime.utcnow().timestamp() * 1000),
+        }
+        if error:
+            record["error"] = error
+        if metrics:
+            record["metrics"] = metrics
+
+        try:
+            self._update_status.insert_one(record)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                f"Failed to save update record for {post_id}: {e}"
+            )
+
+    def get_post_update_records(self, post_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        获取某条推文最近的更新记录。
+
+        Args:
+            post_id: 推文 ID
+            limit: 最大返回条数
+
+        Returns:
+            更新记录列表（按时间倒序）
+        """
+        cursor = self._update_status.find(
+            {"post_id": post_id},
+            sort=[("captured_at", -1)],
+            limit=limit
+        )
+        return list(cursor)
+
+    def get_post_update_summary(self, post_id: str) -> Dict[str, Any]:
+        """
+        获取某条推文的更新状态摘要（最近 N 次的成功/失败统计）。
+
+        Returns:
+            {
+                "post_id": str,
+                "total_updates": int,
+                "success_count": int,
+                "failed_count": int,
+                "last_status": str | None,
+                "last_error": str | None,
+                "is_deleted": bool,
+            }
+        """
+        records = self.get_post_update_records(post_id, limit=100)
+        total = len(records)
+        success_count = sum(1 for r in records if r.get("status") == "success")
+        failed_count = sum(1 for r in records if r.get("status") in ("failed", "deleted"))
+        last_record = records[0] if records else None
+
+        return {
+            "post_id": post_id,
+            "total_updates": total,
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "last_status": last_record.get("status") if last_record else None,
+            "last_error": last_record.get("error") if last_record else None,
+            "is_deleted": any(r.get("status") == "deleted" for r in records),
+        }
+
+    # ==================== 推文删除标记相关方法 ====================
+
+    def mark_post_deleted(self, post_id: str, source: str) -> bool:
+        """
+        将某条推文标记为已删除（在对应源的 post 集合中设置 deleted_at 字段）。
+
+        Args:
+            post_id: 推文 ID
+            source: 数据源（new / helpful）
+
+        Returns:
+            True 表示标记成功，False 表示推文不存在或已标记过
+        """
+        if source == 'new':
+            collection = self._new_posts
+        else:
+            collection = self._helpful_posts
+
+        result = collection.update_one(
+            {"post_id": post_id, "deleted_at": {"$exists": False}},
+            {"$set": {"deleted_at": int(datetime.utcnow().timestamp() * 1000)}}
+        )
+        return result.modified_count > 0
+
+    def get_active_posts(self, source: str) -> List[Dict[str, Any]]:
+        """
+        获取指定源中未被删除的推文列表。
+
+        Args:
+            source: 数据源（new / helpful）
+
+        Returns:
+            活跃推文列表
+        """
+        if source == 'new':
+            collection = self._new_posts
+        else:
+            collection = self._helpful_posts
+
+        cursor = collection.find({"deleted_at": {"$exists": False}})
+        return list(cursor)

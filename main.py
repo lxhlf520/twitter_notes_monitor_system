@@ -166,6 +166,18 @@ def main():
         # 输出账号池统计
         pool_stats = account_pool.get_account_stats()
         logger.info(f"Account pool: {pool_stats['total']} total, {pool_stats['available']} available")
+
+        # Cookie 有效性校验：自动禁用无效账号
+        if pool_stats['total'] > 0:
+            verify_result = account_pool.verify_all_accounts(max_workers=20)
+            if verify_result['invalid'] > 0:
+                logger.warning(
+                    f"已自动禁用 {verify_result['invalid']} 个 cookie 无效的账号，"
+                    f"请使用 manage_accounts.py 更新其 cookie 后重新启用"
+                )
+            pool_stats = account_pool.get_account_stats()
+            logger.info(f"校验后账号池: {pool_stats['available']} available, "
+                       f"{pool_stats['disabled']} disabled, {pool_stats['in_cooldown']} cooldown")
     else:
         client = Client(rpc_model=rpc_mode, rpc_url=rpc_url, rpc_timeout=rpc_timeout, storage=client_storage)
         

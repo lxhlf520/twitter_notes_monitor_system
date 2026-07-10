@@ -235,6 +235,43 @@ class AccountSession:
             return ''
         return self.client_transaction.generate_transaction_id(method=method, path=path)
 
+    def verify_account(self) -> Optional[bool]:
+        """
+        通过轻量 API 请求验证当前账号的 cookie 是否有效。
+
+        Returns:
+            True  = cookie 有效
+            False = cookie 已失效（需禁用账号）
+            None  = 网络异常，不确定
+        """
+        try:
+            headers = {
+                'authorization': 'Bearer AAAA',
+                'content-type': 'application/json',
+                'X-Twitter-Auth-Type': 'OAuth2Session',
+                'X-Twitter-Active-User': 'yes',
+                'Referer': 'https://x.com/',
+                'User-Agent': self.http.headers.get('User-Agent', ''),
+                'X-Csrf-Token': self.get_csrf_token() or '',
+                'x-guest-token': self.get_guest_token() or '',
+            }
+            resp = self.http.get(
+                'https://x.com/i/api/1.1/account/settings.json',
+                headers=headers,
+                timeout=15
+            )
+            if resp.status_code == 200:
+                return True
+            elif resp.status_code in (401, 403):
+                logger.warning(f"[{self.account.username}] Cookie 已失效 (HTTP {resp.status_code})")
+                return False
+            else:
+                logger.warning(f"[{self.account.username}] 验证请求异常 (HTTP {resp.status_code})")
+                return None
+        except Exception as e:
+            logger.warning(f"[{self.account.username}] 账号验证异常: {e}")
+            return None
+
 
 class AccountPool:
     """
@@ -401,6 +438,62 @@ class AccountPool:
                     logger.error(f"[{username}] 签名材料初始化异常: {e}")
 
         logger.info(f"签名初始化完成：成功 {ready_count}，失败 {fail_count}")
+
+    def verify_all_accounts(self, max_workers: int = 20) -> Dict[str, int]:
+        """
+        批量校验所有账号的 cookie 有效性。
+        自动将无效账号标记为禁用，并更新 DB。
+
+        Args:
+            max_workers: 并发线程数
+
+        Returns:
+            {"valid": int, "invalid": int, "unknown": int}
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        valid = 0
+        invalid = 0
+        unknown = 0
+
+        usernames = list(self._sessions.keys())
+        if not usernames:
+            logger.info("没有账号需要校验")
+            return {"valid": 0, "invalid": 0, "unknown": 0}
+
+        logger.info(f"正在批量校验 {len(usernames)} 个账号的 cookie 有效性...")
+
+        def _verify(username: str) -> tuple[str, Optional[bool]]:
+            session = self._sessions.get(username)
+            if session is None:
+                return username, None
+            return username, session.verify_account()
+
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(usernames))) as executor:
+            future_map = {
+                executor.submit(_verify, username): username
+                for username in usernames
+            }
+            for future in as_completed(future_map):
+                username = future_map[future]
+                try:
+                    _, result = future.result()
+                    if result is True:
+                        valid += 1
+                    elif result is False:
+                        invalid += 1
+                        # 自动禁用账号
+                        logger.warning(f"[{username}] Cookie 无效，自动禁用账号")
+                        self.mark_enabled(username, False)
+                        self.storage.mark_account_enabled(username, False)
+                    else:
+                        unknown += 1
+                except Exception as e:
+                    unknown += 1
+                    logger.error(f"[{username}] 校验过程异常: {e}")
+
+        logger.info(f"Cookie 校验完成：有效 {valid}，无效 {invalid}，不确定 {unknown}")
+        return {"valid": valid, "invalid": invalid, "unknown": unknown}
 
     def get_next_session_with_sig(self) -> Optional[AccountSession]:
         """
