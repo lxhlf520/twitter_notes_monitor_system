@@ -8,6 +8,7 @@
     python manage_accounts.py disable <username>
     python manage_accounts.py enable <username>
     python manage_accounts.py stats
+    python manage_accounts.py test [username]
     python manage_accounts.py import <json_file>
 """
 import sys
@@ -184,6 +185,100 @@ def import_accounts(storage, json_file: str, update_existing: bool = False):
     logger.info(result_msg)
 
 
+def test_accounts(storage, username: str = None):
+    """测试账号 cookie 有效性
+
+    向 Twitter 发送轻量 API 请求（GET /i/api/1.1/account/settings.json）验证每个账号的 cookie 是否可用。
+
+    Args:
+        storage: Storage 实例
+        username: 可选，指定账号名，不传则测试所有账号
+    """
+    import toml
+    from pathlib import Path
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    config_path = Path(__file__).parent / "config.toml"
+    config = toml.load(config_path)
+    proxy_url = config.get("proxy", {}).get("url") or None
+
+    pool = AccountPool(storage=storage, proxy=proxy_url)
+    pool.load_accounts_from_db()
+    accounts = pool.get_all_accounts()
+
+    if username:
+        accounts = [a for a in accounts if a.username == username]
+        if not accounts:
+            logger.error(f"账号 '{username}' 不存在")
+            return
+
+    if not accounts:
+        logger.info("账号池为空")
+        return
+
+    logger.info(f"正在测试 {len(accounts)} 个账号的 cookie 有效性...")
+    logger.info("-" * 100)
+
+    # 并发测试
+    results = []
+
+    def _test(acct):
+        session = pool._sessions.get(acct.username)
+        if session is None:
+            return acct.username, "无 Session", ""
+        try:
+            valid = session.verify_account()
+            if valid is True:
+                return acct.username, "✅ 有效", ""
+            elif valid is False:
+                return acct.username, "❌ 无效", "cookie 过期或被踢"
+            else:
+                return acct.username, "⚠️ 异常", "网络或 API 错误"
+        except Exception as e:
+            return acct.username, "❌ 错误", str(e)[:50]
+
+    with ThreadPoolExecutor(max_workers=min(20, len(accounts))) as ex:
+        fut_map = {ex.submit(_test, a): a for a in accounts}
+        for fut in as_completed(fut_map):
+            results.append(fut.result())
+
+    # 按状态排序：无效/错误排前面
+    status_order = {"❌ 无效": 0, "❌ 错误": 1, "⚠️ 异常": 2, "✅ 有效": 3}
+    results.sort(key=lambda r: (status_order.get(r[1], 9), r[0]))
+
+    # 打印结果表格
+    header = f"{'用户名':<25} {'状态':<12} {'启用':<8} {'冷却中':<10} {'请求数':<8} {'失败数':<8} {'说明':<30}"
+    logger.info(header)
+    logger.info("-" * 100)
+    valid_count = 0
+    invalid_count = 0
+    for r_username, status, note in results:
+        acct = pool._accounts.get(r_username)
+        enabled = "✅" if acct and acct.enabled else "❌"
+        cooldown = "⏳" if acct and acct.cooldown_until and acct.cooldown_until > datetime.utcnow() else "-"
+        req_cnt = acct.request_count if acct else 0
+        fail_cnt = acct.fail_count if acct else 0
+        logger.info(f"{r_username:<25} {status:<12} {enabled:<8} {cooldown:<10} {req_cnt:<8} {fail_cnt:<8} {note:<30}")
+        if "有效" in status:
+            valid_count += 1
+        else:
+            invalid_count += 1
+
+    logger.info("-" * 100)
+    logger.info(f"结果: {valid_count} 有效, {invalid_count} 异常/无效 (共 {len(results)})")
+
+    # 提供修复建议
+    if invalid_count > 0:
+        logger.info("")
+        logger.info("💡 建议:")
+        for r_username, status, _ in results:
+            if "无效" in status:
+                logger.info(f"   - {r_username}: 重新登录后更新 cookie (manage_accounts.py disable/enable)")
+            elif "错误" in status:
+                logger.info(f"   - {r_username}: 检查网络环境或代理配置")
+        logger.info("")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -216,6 +311,10 @@ def main():
 
         elif command == "stats":
             show_stats(storage)
+
+        elif command == "test":
+            username = sys.argv[2] if len(sys.argv) >= 3 else None
+            test_accounts(storage, username)
 
         elif command == "import":
             if len(sys.argv) < 3:
