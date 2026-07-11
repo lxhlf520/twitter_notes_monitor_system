@@ -64,18 +64,22 @@ class AccountSession:
         self.client_transaction = None
 
     def _setup_auth_headers(self) -> None:
-        """将 CSRF token 和 guest token 设置到 Session 默认 headers 中"""
+        """将 CSRF token 设置到 Session 默认 headers 中。
+
+        guest_token (gt) 不是浏览器 cookie，不在这里强制校验；
+        如果 cookie 中有 gt 则带上，没有则由后续调用方按需获取。
+        """
         from .errors import TwitterException
 
         csrf_token = self.get_csrf_token()
         if csrf_token is None:
             raise TwitterException(f"Account '{self.account.username}' does not have a valid CSRF token")
-        guest_token = self.get_guest_token()
-        if guest_token is None:
-            raise TwitterException(f"Account '{self.account.username}' does not have a valid guest token")
 
         self.http.headers['X-Csrf-Token'] = csrf_token
-        self.http.headers['x-guest-token'] = guest_token
+
+        guest_token = self.get_guest_token()
+        if guest_token:
+            self.http.headers['x-guest-token'] = guest_token
 
     def get_csrf_token(self) -> str | None:
         return self.cookies_dict.get('ct0')
