@@ -200,6 +200,11 @@ class Monitor:
                 logger.warning(f"账号限流，推迟抓取（将在下个周期重试）")
                 return {"new_posts": 0, "helpful_posts": 0, "errors": []}
 
+            # TweetNotAvailable 是服务端返回的超时/不可见等临时错误
+            if "TweetNotAvailable" in type(e).__name__:
+                logger.warning(f"推文列表暂时不可用，推迟抓取（将在下个周期重试）")
+                return {"new_posts": 0, "helpful_posts": 0, "errors": []}
+
             logger.error(error_msg, exc_info=True)
             if self.health_monitor:
                 self.health_monitor.record_task_failure(TaskName.CRAWL, error_msg, time.time() - start_time)
@@ -307,6 +312,12 @@ class Monitor:
                     # 429 限流是账号级别问题（已强制冷却 60s），不记推文失败
                     if "TooManyRequests" in type(e).__name__:
                         logger.warning(f"账号限流，推迟更新 {pid}（账号已冷却 60s）")
+                        return False
+
+                    # TweetNotAvailable 是 Twitter 服务端返回的错误（超时/不可见等），非推文永久缺失
+                    # 不回补状态，让自然周期重试；连续多次后 `get_tweet_by_id` 返回 None 才会标记已删除
+                    if "TweetNotAvailable" in type(e).__name__:
+                        logger.warning(f"推文暂时不可用，推迟更新 {pid}（{error_msg}）")
                         return False
 
                     logger.error(
