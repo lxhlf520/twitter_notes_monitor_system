@@ -604,7 +604,8 @@ class Client:
         self._save_raw_response("BirdwatchFetchGlobalTimeline", response)
 
         if not response:
-            raise TweetNotAvailable("BirdwatchFetchGlobalTimeline returned empty response")
+            logger.warning("BirdwatchFetchGlobalTimeline 返回空（端点不可用），跳过本次采集")
+            return {'rated_helpful': [], 'new': [], 'helpful_notes': {}, 'new_notes': {}}
 
         if 'errors' in response:
             err_msg = response['errors'][0].get('message', str(response['errors']))
