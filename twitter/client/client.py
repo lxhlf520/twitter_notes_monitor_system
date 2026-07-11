@@ -4,6 +4,7 @@ from functools import partial
 import json
 import os
 import time
+from datetime import datetime, timedelta
 from typing import Any, AsyncGenerator, Dict, Literal, Optional, Union
 from urllib.parse import urlparse
 
@@ -345,8 +346,9 @@ class Client:
             elif status_code == 408:
                 raise RequestTimeout(message, headers=response.headers)
             elif status_code == 429:
-                # if self._get_user_state() == 'suspended':
-                #     raise AccountSuspended(message, headers=response.headers)
+                # 强制冷却 60 秒，避免立即重试再次触发限流
+                if acct_session and self.account_pool:
+                    acct_session.account.cooldown_until = datetime.utcnow() + timedelta(seconds=60)
                 raise TooManyRequests(message, headers=response.headers)
             elif 500 <= status_code < 600:
                 raise ServerError(message, headers=response.headers)

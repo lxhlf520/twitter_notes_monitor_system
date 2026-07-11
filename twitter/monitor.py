@@ -195,6 +195,11 @@ class Monitor:
                 logger.warning(f"账号池暂无可用，推迟抓取（将在下个周期重试）")
                 return {"new_posts": 0, "helpful_posts": 0, "errors": []}
 
+            # 429 限流是账号级别问题，降级为警告
+            if "TooManyRequests" in type(e).__name__:
+                logger.warning(f"账号限流，推迟抓取（将在下个周期重试）")
+                return {"new_posts": 0, "helpful_posts": 0, "errors": []}
+
             logger.error(error_msg, exc_info=True)
             if self.health_monitor:
                 self.health_monitor.record_task_failure(TaskName.CRAWL, error_msg, time.time() - start_time)
@@ -297,7 +302,11 @@ class Monitor:
                     # 账号池耗尽不是推文级别的错误，降级日志、不记失败状态
                     if "No available accounts" in str(e):
                         logger.warning(f"账号池暂无可用，推迟更新 {pid}（将在下个周期重试）")
-                        # 不记录 failed 状态，避免失败回补机制误触发
+                        return False
+
+                    # 429 限流是账号级别问题（已强制冷却 60s），不记推文失败
+                    if "TooManyRequests" in type(e).__name__:
+                        logger.warning(f"账号限流，推迟更新 {pid}（账号已冷却 60s）")
                         return False
 
                     logger.error(
