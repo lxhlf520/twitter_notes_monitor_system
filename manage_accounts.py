@@ -192,11 +192,49 @@ def import_accounts(storage, json_file: str, update_existing: bool = False):
 
     for account_data in accounts_data:
         username = account_data.get("username", "").strip()
-        cookie = account_data.get("cookie", "").strip()
+        cookie_raw = account_data.get("cookie")
 
-        # 跳过空 username 或 cookie
-        if not username or not cookie:
-            logger.warning(f"Skipping: empty username or cookie")
+        # 跳过空 username
+        if not username:
+            logger.warning(f"Skipping: empty username")
+            skipped += 1
+            continue
+
+        # 兼容两种 cookie 格式：
+        # 1. 字符串格式: "name1=val1;name2=val2;..."
+        # 2. 浏览器 cookie 数组: [[{name,value,...}, ...]] 或 [{name,value,...}, ...]
+        if isinstance(cookie_raw, str):
+            cookie = cookie_raw.strip()
+        elif isinstance(cookie_raw, list):
+            # 处理 [[...]] 嵌套数组
+            cookie_list = cookie_raw[0] if cookie_raw and isinstance(cookie_raw[0], list) else cookie_raw
+            # 转为 cookie 字符串
+            parts = []
+            has_ct0 = has_auth = False
+            for c in cookie_list:
+                if not isinstance(c, dict):
+                    continue
+                name = c.get("name", "").strip()
+                value = c.get("value", "").strip()
+                if not name or not value:
+                    continue
+                if name == "ct0":
+                    has_ct0 = True
+                if name == "auth_token":
+                    has_auth = True
+                parts.append(f"{name}={value}")
+            if not has_auth or not has_ct0:
+                logger.error(f"{username}: 缺少 auth_token 或 ct0")
+                failed += 1
+                continue
+            cookie = ";".join(parts)
+        else:
+            logger.warning(f"Skipping {username}: 无法识别的 cookie 类型")
+            skipped += 1
+            continue
+
+        if not cookie:
+            logger.warning(f"Skipping {username}: empty cookie")
             skipped += 1
             continue
 
