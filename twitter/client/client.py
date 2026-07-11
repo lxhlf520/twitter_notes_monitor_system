@@ -267,15 +267,26 @@ class Client:
         acct_session = None
         headers = kwargs.pop('headers', {})
         if self.account_pool:
-            # 重试等待可用账号（最多等 3 秒，避开单账号 0.5s 冷却期）
-            for retry in range(6):
+            # 重试等待可用账号（最多等 30 秒，避开单账号 0.5s 冷却期）
+            # 应对 max_workers(100) >> 账号数(10) 的并发场景：
+            # 37个任务抢10个账号，每0.5s冷却释放一轮，约 4 轮(2s)全部消化
+            # 若请求本身耗时较长，额外预留缓冲时间
+            max_wait = 30.0
+            poll_interval = 0.3
+            waited = 0.0
+            while waited < max_wait:
                 acct_session = self.account_pool.get_next_session_with_sig()
                 if acct_session is not None:
                     break
-                if retry < 5:
-                    time.sleep(0.5)
+                time.sleep(poll_interval)
+                waited += poll_interval
             if acct_session is None:
-                raise TwitterException("No available accounts in the account pool")
+                raise TwitterException(
+                    f"No available accounts in the account pool "
+                    f"(waited {max_wait:.0f}s, "
+                    f"accounts={len(self.account_pool.get_all_accounts())}, "
+                    f"enabled={sum(1 for a in self.account_pool.get_all_accounts() if a.enabled)})"
+                )
         
 
         # 使用账号 Session 生成签名
