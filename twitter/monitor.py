@@ -77,7 +77,7 @@ class Monitor:
             'helpful_interval_seconds': 7200,        # 2小时
             'helpful_max_days': 14,                  # 最多追踪14天
             # 多线程配置
-            'max_workers': 100,
+            'max_workers': 10,
             'fetch_parallel': True,
         }
 

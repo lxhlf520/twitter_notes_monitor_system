@@ -327,6 +327,17 @@ class Storage:
                 if time_since_update >= interval_seconds:
                     needs_update = True
 
+            if not needs_update:
+                # 失败回补：如果最近一次更新状态是 "failed"，立即重试
+                # 避免因账号池耗尽等临时故障导致掉队
+                last_update = self._update_status.find_one(
+                    {"post_id": post_id},
+                    sort=[("captured_at", -1)],
+                    projection={"status": 1, "_id": 0}
+                )
+                if last_update and last_update.get("status") == "failed":
+                    needs_update = True
+
             if needs_update:
                 posts_to_update.append(post)
 

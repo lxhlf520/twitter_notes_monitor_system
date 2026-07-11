@@ -34,8 +34,8 @@ new_to_helpful_max_days = 14            # 变成helpful后追踪14天
 # helpful note 策略：间隔2小时，持续追踪14天
 helpful_interval_seconds = 7200   # 2小时
 helpful_max_days = 14             # 最多追踪14天
-# 工作线程数
-max_workers = 100
+# 工作线程数（当前10账号用10线程，拓展到50账号时同步增大）
+max_workers = 10
 [proxy]
 url = "http://127.0.0.1:7890"
 
