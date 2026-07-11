@@ -169,11 +169,15 @@ class Client:
             sharedjs_url = _resolve_url(sharedjs_url)
 
         # 下载 JS bundles
-        mainjs_resp = self.http.get(mainjs_url, headers=headers, timeout=30)
-        mainjs_content = mainjs_resp.text
-
+        mainjs_content = None
         sharedjs_content = None
-        if sharedjs_url:
+        try:
+            mainjs_resp = self.http.get(mainjs_url, headers=headers, timeout=30)
+            mainjs_content = mainjs_resp.text
+        except Exception as e:
+            logger.warning(f"下载 main.js 失败: {e}")
+
+        if mainjs_content and sharedjs_url:
             try:
                 sharedjs_resp = self.http.get(sharedjs_url, headers=headers, timeout=30)
                 sharedjs_content = sharedjs_resp.text
@@ -181,23 +185,24 @@ class Client:
                 logger.warning(f"下载 shared.js 失败: {e}")
 
         # 使用 exejs 提取导出值
-        import exejs
         export_values = {}
-        try:
-            export1 = exejs.compile(JSCODE % mainjs_content).call("getExportValues")
-            export_values.update(export1)
-        except Exception as e:
-            logger.warning(f"main.js exejs 解析失败，使用备选端点参数: {e}")
-        if sharedjs_content:
+        if mainjs_content:
+            import exejs
             try:
-                export2 = exejs.compile(JSCODE % sharedjs_content).call("getExportValues")
-                export_values.update(export2)
+                export1 = exejs.compile(JSCODE % mainjs_content).call("getExportValues")
+                export_values.update(export1)
             except Exception as e:
-                logger.warning(f"shared.js exejs 解析失败: {e}")
+                logger.warning(f"main.js exejs 解析失败: {e}")
+            if sharedjs_content:
+                try:
+                    export2 = exejs.compile(JSCODE % sharedjs_content).call("getExportValues")
+                    export_values.update(export2)
+                except Exception as e:
+                    logger.warning(f"shared.js exejs 解析失败: {e}")
 
-        # 若 exejs 提取为空，用 APPEND_EXPORT_VALUES 兜底
+        # 若 JS 下载或 exejs 提取失败，用 APPEND_EXPORT_VALUES 兜底
         if not export_values:
-            logger.warning("exejs 未提取到任何导出值，使用硬编码备选端点参数")
+            logger.warning("JS 下载或 exejs 提取失败，使用硬编码备选端点参数")
             export_values = APPEND_EXPORT_VALUES
 
         # 构建 endpoint_params
