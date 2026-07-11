@@ -4,6 +4,9 @@ from typing import TYPE_CHECKING, Dict
 
 from ..utils import flatten_params, get_query_id
 
+import logging
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     # from ..guest.client import GuestClient
     from .client import Client
@@ -23,6 +26,9 @@ class GQLClient:
         headers: Dict | None = None,
         **kwargs
     ):
+        if endpoint not in self.base.endpoint_params:
+            logger.warning(f"Endpoint '{endpoint}' 不在 endpoint_params 中（JS 提取不完整），跳过")
+            return {}, None
         endpoint_export = self.base.endpoint_params[endpoint]
         endpoint_url = endpoint_export["endpoint"]
         params.update(endpoint_export["params"])
@@ -36,6 +42,9 @@ class GQLClient:
         headers: dict | None = None,
         **kwargs
     ):
+        if endpoint not in self.base.endpoint_params:
+            logger.warning(f"Endpoint '{endpoint}' 不在 endpoint_params 中（JS 提取不完整），跳过")
+            return {}, None
         endpoint_export = self.base.endpoint_params[endpoint]
         endpoint_url = endpoint_export["endpoint"]
         params.update(endpoint_export["params"])
