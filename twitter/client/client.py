@@ -3,6 +3,7 @@ import logging
 from functools import partial
 import json
 import os
+import time
 from typing import Any, AsyncGenerator, Dict, Literal, Optional, Union
 from urllib.parse import urlparse
 
@@ -266,7 +267,13 @@ class Client:
         acct_session = None
         headers = kwargs.pop('headers', {})
         if self.account_pool:
-            acct_session = self.account_pool.get_next_session_with_sig()
+            # 重试等待可用账号（最多等 3 秒，避开单账号 0.5s 冷却期）
+            for retry in range(6):
+                acct_session = self.account_pool.get_next_session_with_sig()
+                if acct_session is not None:
+                    break
+                if retry < 5:
+                    time.sleep(0.5)
             if acct_session is None:
                 raise TwitterException("No available accounts in the account pool")
         
