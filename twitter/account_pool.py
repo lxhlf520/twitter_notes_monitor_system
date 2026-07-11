@@ -247,18 +247,18 @@ class AccountSession:
         """
         try:
             headers = {
-                'authorization': 'Bearer AAAA',
+                'authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
                 'content-type': 'application/json',
                 'X-Twitter-Auth-Type': 'OAuth2Session',
                 'X-Twitter-Active-User': 'yes',
                 'Referer': 'https://x.com/',
                 'User-Agent': self.http.headers.get('User-Agent', ''),
                 'X-Csrf-Token': self.get_csrf_token() or '',
-                'x-guest-token': self.get_guest_token() or '',
             }
             resp = self.http.get(
                 'https://x.com/i/api/1.1/account/settings.json',
                 headers=headers,
+                cookies=self.cookies_dict,
                 timeout=15
             )
             if resp.status_code == 200:
