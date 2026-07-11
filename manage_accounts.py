@@ -59,6 +59,7 @@ def add_account(storage, username: str, cookie: str):
 def list_accounts(storage):
     """列出所有账号"""
     pool = AccountPool(storage=storage)
+    pool.load_accounts_from_db()
     accounts = pool.get_all_accounts()
 
     if not accounts:
