@@ -10,6 +10,13 @@
     python manage_accounts.py stats
     python manage_accounts.py test [username]
     python manage_accounts.py import <json_file>
+    python manage_accounts.py import-cookies <file_or_dir> [--username USERNAME]
+
+    import-cookies 支持从浏览器导出的 cookie JSON 格式导入:
+      - 纯 cookie 数组: [{name, value, domain, ...}, ...]
+      - 含 username 对象: {"username": "xxx", "cookies": [...]}
+      - 含 username 数组: [{"username": "xxx", "cookies": [...]}, ...]
+      - 目录: 批量导入目录下所有 .json 文件, 文件名作为用户名
 """
 import sys
 import logging
@@ -236,7 +243,152 @@ def import_accounts(storage, json_file: str, update_existing: bool = False):
     logger.info(result_msg)
 
 
-def test_accounts(storage, username: str = None):
+def import_browser_cookies(storage, file_or_dir: str, username: str | None = None):
+    """
+    从浏览器导出的 cookies JSON 格式导入账号。
+
+    支持的 JSON 格式:
+      1. 纯 cookie 数组：[{name, value, domain, ...}, ...]
+         username 从 --username 参数或文件名(不含后缀)获取
+      2. 单账号对象：{"username": "xxx", "cookies": [...]}
+      3. 多账号数组：[{"username": "xxx", "cookies": [...]}, ...]
+
+    Args:
+        storage: Storage 实例
+        file_or_dir: JSON 文件或目录路径
+        username: 可选, 指定用户名(仅单文件纯 cookie 数组时使用)
+    """
+    import json
+    from pathlib import Path
+
+    pool = AccountPool(storage=storage)
+    path = Path(file_or_dir)
+    if not path.is_absolute():
+        path = Path(__file__).parent / path
+
+    # 收集 {(username, cookie_str), ...}
+    pending = []
+
+    def _cookies_to_str(cookies_list: list) -> str | None:
+        """将 cookie 对象数组转为 name=value;... 字符串"""
+        parts = []
+        has_ct0 = False
+        has_auth = False
+        for c in cookies_list:
+            name = c.get("name", "").strip()
+            value = c.get("value", "").strip()
+            if not name or not value:
+                continue
+            if name == "ct0":
+                has_ct0 = True
+            if name == "auth_token":
+                has_auth = True
+            parts.append(f"{name}={value}")
+        if not has_auth or not has_ct0:
+            return None
+        return ";".join(parts)
+
+    def _parse_one_account(data, fallback_username: str | None = None):
+        """解析单个账号数据，可能返回 (username, cookie_str) 或 None"""
+        if isinstance(data, dict):
+            if "cookies" in data and isinstance(data["cookies"], list):
+                u = data.get("username", fallback_username or "")
+                if u:
+                    c = _cookies_to_str(data["cookies"])
+                    if c:
+                        return (u.strip(), c)
+            # 单文件用户可能传了 name/value 列表，通过 keys 探测
+            return None
+        return None
+
+    def _process_file(file_path: Path, default_username: str | None = None):
+        """处理单个 JSON 文件"""
+        nonlocal pending
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON 解析失败 {file_path.name}: {e}")
+            return
+
+        if isinstance(data, list):
+            if not data:
+                return
+            first = data[0]
+            if isinstance(first, dict):
+                # 判断是纯 cookie 数组还是带 username 的对象数组
+                if "name" in first and "value" in first:
+                    # 纯 cookie 数组 → 使用 default_username 或文件名
+                    u = default_username or file_path.stem
+                    c = _cookies_to_str(data)
+                    if c:
+                        pending.append((u, c))
+                    else:
+                        logger.error(f"{file_path.name}: 缺少 auth_token 或 ct0")
+                elif "username" in first or "cookies" in first:
+                    # 多账号对象数组
+                    for item in data:
+                        r = _parse_one_account(item)
+                        if r:
+                            pending.append(r)
+                        else:
+                            logger.warning(f"{file_path.name}: 跳过无效条目")
+                else:
+                    logger.error(f"{file_path.name}: 无法识别的 JSON 格式")
+        elif isinstance(data, dict):
+            if "cookies" in data:
+                # 单账号对象
+                r = _parse_one_account(data, default_username)
+                if r:
+                    pending.append(r)
+                else:
+                    logger.error(f"{file_path.name}: 缺少 username、auth_token 或 ct0")
+            else:
+                logger.error(f"{file_path.name}: 无法识别的 JSON 格式，缺少 cookies 字段")
+        else:
+            logger.error(f"{file_path.name}: JSON 根元素必须是数组或对象")
+
+    if path.is_dir():
+        files = sorted(path.glob("*.json"))
+        if not files:
+            logger.error(f"目录 {path} 下没有 .json 文件")
+            return
+        logger.info(f"从目录 {path} 批量导入 {len(files)} 个文件...")
+        for f in files:
+            _process_file(f)
+    else:
+        _process_file(path, username)
+
+    if not pending:
+        logger.error("没有可导入的账号")
+        return
+
+    # 执行导入
+    imported = 0
+    skipped = 0
+    failed = 0
+    logger.info(f"准备导入 {len(pending)} 个账号...")
+    logger.info("-" * 60)
+
+    for u, c in pending:
+        try:
+            pool.add_account(u, c, enabled=True)
+            logger.info(f"✅ Imported: {u}")
+            imported += 1
+        except Exception as e:
+            error_msg = str(e)
+            if "duplicate" in error_msg.lower() or "already exists" in error_msg.lower():
+                logger.info(f"⏭️  Skipped (exists): {u}")
+                skipped += 1
+            else:
+                logger.error(f"❌ Failed to add {u}: {error_msg}")
+                failed += 1
+
+    logger.info("-" * 60)
+    logger.info(f"Import completed: {imported} imported, {skipped} skipped, {failed} failed")
+
+
+def test_accounts(storage, username: str | None = None):
     """测试账号 cookie 有效性
 
     向 Twitter 发送轻量 API 请求（GET /i/api/1.1/account/settings.json）验证每个账号的 cookie 是否可用。
@@ -374,6 +526,18 @@ def main():
             json_file = sys.argv[2]
             update_existing = "--update" in sys.argv
             import_accounts(storage, json_file, update_existing)
+
+        elif command == "import-cookies":
+            if len(sys.argv) < 3:
+                logger.error("Usage: python manage_accounts.py import-cookies <file_or_dir> [--username USERNAME]")
+                sys.exit(1)
+            path_arg = sys.argv[2]
+            explicit_username = None
+            if "--username" in sys.argv:
+                idx = sys.argv.index("--username")
+                if idx + 1 < len(sys.argv):
+                    explicit_username = sys.argv[idx + 1]
+            import_browser_cookies(storage, path_arg, explicit_username)
 
         else:
             logger.error(f"Unknown command: {command}")
