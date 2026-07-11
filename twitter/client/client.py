@@ -309,8 +309,12 @@ class Client:
             response_data = response.text
 
         if isinstance(response_data, dict) and 'errors' in response_data:
-            error_code = response_data['errors'][0]['code']
+            error_code = response_data['errors'][0].get('code')
             error_message = response_data['errors'][0].get('message')
+
+            # 如果没有 code 字段（Twitter 有时返回不规范格式），统一当作 TweetNotAvailable
+            if error_code is None:
+                raise TweetNotAvailable(error_message)
 
             # 记录失败
             if acct_session and self.account_pool:
