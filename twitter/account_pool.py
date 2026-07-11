@@ -56,6 +56,10 @@ class AccountSession:
         else:
             self.cookies_dict = account.cookie
             self.cookies = cookie_dict_to_str(account.cookie)
+
+        # 将 cookies 设置到 curl_cffi Session，后续请求自动携带
+        for name, value in self.cookies_dict.items():
+            self.http.cookies.set(name, value, domain=".x.com")
         
         # 初始化时将 auth headers 设置到 Session 默认 headers，后续请求自动携带
         self._setup_auth_headers()
@@ -238,7 +242,8 @@ class AccountSession:
 
     def verify_account(self) -> Optional[bool]:
         """
-        通过轻量 API 请求验证当前账号的 cookie 是否有效。
+        通过请求 x.com 首页验证 cookie 是否有效。
+        返回 200 且页面包含 'gt='（已登录特征）则判定有效。
 
         Returns:
             True  = cookie 有效
@@ -247,24 +252,22 @@ class AccountSession:
         """
         try:
             headers = {
-                'authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
-                'content-type': 'application/json',
-                'X-Twitter-Auth-Type': 'OAuth2Session',
-                'X-Twitter-Active-User': 'yes',
-                'Referer': 'https://x.com/',
                 'User-Agent': self.http.headers.get('User-Agent', ''),
                 'X-Csrf-Token': self.get_csrf_token() or '',
             }
             resp = self.http.get(
-                'https://x.com/i/api/1.1/account/settings.json',
+                'https://x.com/',
                 headers=headers,
-                cookies=self.cookies_dict,
                 timeout=15
             )
             if resp.status_code == 200:
                 return True
             elif resp.status_code in (401, 403):
                 logger.warning(f"[{self.account.username}] Cookie 已失效 (HTTP {resp.status_code})")
+                return False
+            elif resp.status_code in (302, 307):
+                # 重定向到登录页表示 cookie 已失效
+                logger.warning(f"[{self.account.username}] Cookie 已失效 (重定向到登录页)")
                 return False
             else:
                 logger.warning(f"[{self.account.username}] 验证请求异常 (HTTP {resp.status_code})")
