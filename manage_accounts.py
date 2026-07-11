@@ -115,9 +115,21 @@ def import_accounts(storage, json_file: str, update_existing: bool = False):
     if not file_path.is_absolute():
         file_path = Path(__file__).parent / file_path
 
-    # 加载 JSON 数据
-    with open(file_path, 'r', encoding='utf-8') as f:
-        accounts_data = json.load(f)
+    # 加载 JSON 数据（utf-8-sig 兼容 Windows 记事本的 BOM 头）
+    try:
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            raw = f.read()
+        accounts_data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        # 截取错误位置附近的片段帮助排查
+        start = max(0, e.pos - 50)
+        end = min(len(raw), e.pos + 50)
+        snippet = raw[start:end]
+        logger.error(f"JSON 解析失败: {e}")
+        logger.error(f"错误位置附近原文: ...{snippet}...")
+        logger.error("常见原因: cookie 中含未转义的特殊字符，或 JSON 文件格式有误")
+        logger.error("建议: 用 VS Code 打开 JSON 文件检查语法高亮，或用 jsonlint.com 验证格式")
+        return
 
     if not isinstance(accounts_data, list):
         logger.error("JSON file must contain an array of accounts")
