@@ -4,6 +4,8 @@ from pydantic import BaseModel
 from .storage import Storage
 from .utils import cookie_str_to_dict, cookie_dict_to_str
 from curl_cffi.requests import Session
+from bs4 import BeautifulSoup
+from .x_client_transaction import ClientTransaction
 import re
 import base64
 import logging
@@ -97,7 +99,6 @@ class AccountSession:
             cached = self.storage.get_signature_cache(self.account.username)
             if cached and all(k in cached for k in ['key_bytes', 'key_byte_indices', 'arr_2d']):
                 try:
-                    from .x_client_transaction import ClientTransaction
                     self.client_transaction = ClientTransaction.from_cache(
                         cached['key_bytes'],
                         cached['key_byte_indices'],
@@ -117,10 +118,6 @@ class AccountSession:
         获取后自动缓存到 MongoDB。
         """
         try:
-            from bs4 import BeautifulSoup
-            from .x_client_transaction import ClientTransaction
-
-            # 2a. 请求首页获取 meta tag 和 loading-x-anim
             logger.info(f"[{self.account.username}] 正在从 x.com 获取签名材料...")
             resp = self.http.get('https://x.com/', timeout=30)
             soup = BeautifulSoup(resp.text, 'html.parser')
