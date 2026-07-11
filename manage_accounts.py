@@ -97,6 +97,63 @@ def show_stats(storage):
     logger.info(f"In Cooldown: {stats['in_cooldown']}")
 
 
+def _parse_lenient_json(raw: str) -> list | None:
+    """
+    宽松解析 JSON：处理 cookie 值中含未转义双引号的常见问题。
+
+    例如 personalization_id="v1_xxx" 在 JSON 中本应写作 \"v1_xxx\"，
+    但浏览器直接复制出来的 cookie 常带未转义引号。此函数用启发式
+    方法提取 username 和 cookie 字段，不依赖标准 JSON 解析。
+    """
+    import re
+
+    results = []
+    i = 0
+    while i < len(raw):
+        # 找 {
+        i = raw.find('{', i)
+        if i == -1:
+            break
+
+        # 提取 username
+        m_u = re.search(r'"username"\s*:\s*"([^"]+)"', raw[i:i+300])
+        if not m_u:
+            i += 1
+            continue
+        username = m_u.group(1)
+
+        # 找 "cookie": 后面的值
+        cookie_label = raw.find('"cookie"', i + m_u.end())
+        if cookie_label == -1:
+            i += 1
+            continue
+
+        # 找第一个 " 作为值的起始
+        val_start = raw.find('"', cookie_label + 9)
+        if val_start == -1:
+            i += 1
+            continue
+        val_start += 1
+
+        # 找当前 account 块的末尾 }，在此范围内找 cookie 值的结束 "
+        block_end = raw.find('}', i + 1)
+        if block_end == -1:
+            i += 1
+            continue
+
+        # 从块末尾向前找最后一个 "，即 cookie 值结束位置
+        val_end = raw.rfind('"', val_start, block_end)
+        if val_end == -1 or val_end <= val_start:
+            i += 1
+            continue
+
+        cookie = raw[val_start:val_end]
+        results.append({"username": username, "cookie": cookie})
+        i = block_end + 1
+
+    return results if results else None
+
+
 def import_accounts(storage, json_file: str, update_existing: bool = False):
     """从 JSON 文件导入账号
 
@@ -120,16 +177,15 @@ def import_accounts(storage, json_file: str, update_existing: bool = False):
         with open(file_path, 'r', encoding='utf-8-sig') as f:
             raw = f.read()
         accounts_data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        # 截取错误位置附近的片段帮助排查
-        start = max(0, e.pos - 50)
-        end = min(len(raw), e.pos + 50)
-        snippet = raw[start:end]
-        logger.error(f"JSON 解析失败: {e}")
-        logger.error(f"错误位置附近原文: ...{snippet}...")
-        logger.error("常见原因: cookie 中含未转义的特殊字符，或 JSON 文件格式有误")
-        logger.error("建议: 用 VS Code 打开 JSON 文件检查语法高亮，或用 jsonlint.com 验证格式")
-        return
+    except json.JSONDecodeError:
+        logger.warning("标准 JSON 解析失败，尝试自动修复内嵌引号...")
+        accounts_data = _parse_lenient_json(raw)
+        if accounts_data is None:
+            logger.error("自动修复失败，请检查 JSON 文件格式")
+            logger.error("常见原因: cookie 中含未转义的特殊字符，如 personalization_id=\"v1_...\"")
+            logger.error("建议: 删除 cookie 内部的双引号，或用 manage_accounts.py add 逐个添加")
+            return
+        logger.info(f"自动修复成功，解析到 {len(accounts_data)} 个账号")
 
     if not isinstance(accounts_data, list):
         logger.error("JSON file must contain an array of accounts")
