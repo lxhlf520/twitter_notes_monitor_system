@@ -125,6 +125,25 @@ class Client:
             if cached_params:
                 self.endpoint_params = cached_params
                 logger.info("端点参数从缓存恢复")
+                # 用硬编码值补充缓存中可能缺失的端点（如懒加载 chunk 中的 BirdwatchFetchGlobalTimeline）
+                base_url = 'https://x.com/i/api/graphql'
+                added = 0
+                for key, value in APPEND_EXPORT_VALUES.items():
+                    if key not in self.endpoint_params:
+                        ep = {'params': {}, 'endpoint': f'{base_url}/{value["queryId"]}/{key}'}
+                        metadata = value.get('metadata', {})
+                        featureSwitches = metadata.get("featureSwitches", [])
+                        fieldToggle = metadata.get("fieldToggles", [])
+                        if featureSwitches:
+                            ep['params']['features'] = {f: True for f in featureSwitches}
+                        if fieldToggle:
+                            ep['params']['fieldToggles'] = {f: True for f in fieldToggle}
+                        self.endpoint_params[key] = ep
+                        added += 1
+                if added:
+                    logger.info(f"硬编码补充了 {added} 个缺失端点到缓存中")
+                    # 更新缓存，避免下次启动重复补充
+                    self.storage.save_endpoint_params(self.endpoint_params)
                 return
 
         # 2. 缓存未命中，从 x.com 获取 JS bundles 提取
@@ -200,10 +219,15 @@ class Client:
                 except Exception as e:
                     logger.warning(f"shared.js exejs 解析失败: {e}")
 
-        # 若 JS 下载或 exejs 提取失败，用 APPEND_EXPORT_VALUES 兜底
+        # 用硬编码端点参数兜底：若 JS 提取为空则完全替换，否则补充缺失的端点
         if not export_values:
             logger.warning("JS 下载或 exejs 提取失败，使用硬编码备选端点参数")
             export_values = APPEND_EXPORT_VALUES
+        else:
+            # 硬编码值补充提取缺失的端点（优先保留 JS 提取的值）
+            for key, value in APPEND_EXPORT_VALUES.items():
+                if key not in export_values:
+                    export_values[key] = value
 
         # 构建 endpoint_params
         base_url = 'https://x.com/i/api/graphql'
