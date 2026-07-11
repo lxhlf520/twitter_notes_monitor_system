@@ -183,14 +183,22 @@ class Client:
         # 使用 exejs 提取导出值
         import exejs
         export_values = {}
-        export1 = exejs.compile(JSCODE % mainjs_content).call("getExportValues")
-        export_values.update(export1)
+        try:
+            export1 = exejs.compile(JSCODE % mainjs_content).call("getExportValues")
+            export_values.update(export1)
+        except Exception as e:
+            logger.warning(f"main.js exejs 解析失败，使用备选端点参数: {e}")
         if sharedjs_content:
             try:
                 export2 = exejs.compile(JSCODE % sharedjs_content).call("getExportValues")
                 export_values.update(export2)
             except Exception as e:
                 logger.warning(f"shared.js exejs 解析失败: {e}")
+
+        # 若 exejs 提取为空，用 APPEND_EXPORT_VALUES 兜底
+        if not export_values:
+            logger.warning("exejs 未提取到任何导出值，使用硬编码备选端点参数")
+            export_values = APPEND_EXPORT_VALUES
 
         # 构建 endpoint_params
         base_url = 'https://x.com/i/api/graphql'
