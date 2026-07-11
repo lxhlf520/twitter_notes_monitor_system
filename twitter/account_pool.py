@@ -343,6 +343,14 @@ class AccountPool:
                         data[field] = datetime.fromisoformat(str(data[field]))
                     except (ValueError, TypeError):
                         data[field] = None
+
+            # 兼容手动写入 MongoDB 时 enabled 为空字符串的情况
+            if "enabled" in data and not isinstance(data["enabled"], bool):
+                if isinstance(data["enabled"], str) and data["enabled"].strip():
+                    data["enabled"] = data["enabled"].lower() in ("true", "1", "yes")
+                else:
+                    data["enabled"] = True
+
             account = Account.model_validate(data)
             self._accounts[account.username] = account
             # 初始化时即创建对应的 Session，传入 storage 引用
