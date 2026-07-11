@@ -99,57 +99,40 @@ def show_stats(storage):
 
 def _parse_lenient_json(raw: str) -> list | None:
     """
-    宽松解析 JSON：处理 cookie 值中含未转义双引号的常见问题。
+    宽松解析 JSON：按行处理，不依赖 JSON 语法结构。
 
-    例如 personalization_id="v1_xxx" 在 JSON 中本应写作 \"v1_xxx\"，
-    但浏览器直接复制出来的 cookie 常带未转义引号。此函数用启发式
-    方法提取 username 和 cookie 字段，不依赖标准 JSON 解析。
+    从每行提取 key-value 对，自动拼接同一 account 的 username 和 cookie。
+    兼容 cookie 值中含任意特殊字符（引号、花括号等）的场景。
     """
     import re
 
     results = []
-    i = 0
-    while i < len(raw):
-        # 找 {
-        i = raw.find('{', i)
-        if i == -1:
-            break
+    current = {}
+
+    for line in raw.split('\n'):
+        line_stripped = line.strip()
 
         # 提取 username
-        m_u = re.search(r'"username"\s*:\s*"([^"]+)"', raw[i:i+300])
-        if not m_u:
-            i += 1
-            continue
-        username = m_u.group(1)
-
-        # 找 "cookie": 后面的值
-        cookie_label = raw.find('"cookie"', i + m_u.end())
-        if cookie_label == -1:
-            i += 1
+        m_u = re.match(r'"username"\s*:\s*"([^"]+)"', line_stripped)
+        if m_u:
+            current['username'] = m_u.group(1)
             continue
 
-        # 找第一个 " 作为值的起始
-        val_start = raw.find('"', cookie_label + 9)
-        if val_start == -1:
-            i += 1
-            continue
-        val_start += 1
-
-        # 找当前 account 块的末尾 }，在此范围内找 cookie 值的结束 "
-        block_end = raw.find('}', i + 1)
-        if block_end == -1:
-            i += 1
+        # 提取 cookie（关键优化：取 "cookie": " 之后到行尾，然后清理尾部）
+        m_c = re.match(r'"cookie"\s*:\s*"(.+)', line_stripped)
+        if m_c:
+            cookie_raw = m_c.group(1)
+            # 从尾部删除多余的引号/逗号：逐字符清理
+            # cookie 值内部可能含有 ", 只删末尾多余的
+            while cookie_raw and cookie_raw[-1] in ('"', ',', ' ', '\t'):
+                cookie_raw = cookie_raw[:-1]
+            current['cookie'] = cookie_raw
             continue
 
-        # 从块末尾向前找最后一个 "，即 cookie 值结束位置
-        val_end = raw.rfind('"', val_start, block_end)
-        if val_end == -1 or val_end <= val_start:
-            i += 1
-            continue
-
-        cookie = raw[val_start:val_end]
-        results.append({"username": username, "cookie": cookie})
-        i = block_end + 1
+        # 遇到 } 表示一个 account 结束
+        if '}' in line and current.get('username') and current.get('cookie'):
+            results.append({"username": current['username'], "cookie": current['cookie']})
+            current = {}
 
     return results if results else None
 
