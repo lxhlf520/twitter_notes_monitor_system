@@ -10,7 +10,7 @@ base_url = "http://127.0.0.1:5612"
 timeout = 90
 
 [mongodb]
-uri = "mongodb://10.83.0.134:27017"
+uri = "mongodb://localhost:27017"
 database = "community_notes"
 username = ""
 password = ""
