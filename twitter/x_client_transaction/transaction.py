@@ -105,6 +105,11 @@ class ClientTransaction:
 
     
     def get_animation_key(self):
+        if not self.DEFAULT_KEY_BYTES_INDICES:
+            # 没有 frame_time 索引时直接使用默认动画 key
+            # （x.com 已移除 ondemand.js，此路径表示退回到简化签名）
+            self.animation_key = self.DEFAULT_ANIMATION_KEY
+            return
         total_time = 4096
         row_index = self.key_bytes[self.DEFAULT_ROW_INDEX] % 16
         frame_time = reduce(lambda num1, num2: num1*num2,

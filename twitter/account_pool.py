@@ -151,9 +151,14 @@ class AccountSession:
 
             # 2d. 查找并下载 ondemand.js 提取 key_byte_indices
             key_byte_indices = self._extract_key_byte_indices(soup)
+            if key_byte_indices:
+                logger.info(f"[{self.account.username}] 从 ondemand.js 提取到 {len(key_byte_indices)} 个 key_byte_indices")
+            else:
+                logger.warning(f"[{self.account.username}] ondemand.js 不可用，尝试从 main.js 提取...")
+                key_byte_indices = self._extract_key_byte_indices_from_mainjs(soup)
             if not key_byte_indices:
-                logger.error(f"[{self.account.username}] 无法从 ondemand.js 提取 key_byte_indices")
-                return False
+                logger.warning(f"[{self.account.username}] 无法从 JS 提取 key_byte_indices，将使用默认动画 Key（可能影响签名验证）")
+                key_byte_indices = [5]  # 仅 row_index，不做 frame_time 计算
 
             # 2e. 构造 ClientTransaction
             self.client_transaction = ClientTransaction.from_cache(
@@ -223,6 +228,46 @@ class AccountSession:
 
         except Exception as e:
             logger.warning(f"提取 key_byte_indices 失败: {e}")
+            return None
+
+    def _extract_key_byte_indices_from_mainjs(self, soup: BeautifulSoup) -> Optional[List[int]]:
+        """
+        ondemand.js 不可用时（已被 x.com 移除），回退到 main.js 中搜索。
+        """
+        try:
+            mainjs_url = None
+            for script in soup.select('script[src]'):
+                src = script.get('src', '')
+                if '/main.' in src and src.endswith('.js'):
+                    mainjs_url = src
+                    break
+            if not mainjs_url:
+                for link in soup.select('link[as="script"][href*="/main."]'):
+                    mainjs_url = link.get('href')
+                    break
+            if not mainjs_url:
+                logger.warning("main.js URL 未找到")
+                return None
+
+            if mainjs_url.startswith('//'):
+                mainjs_url = 'https:' + mainjs_url
+            elif mainjs_url.startswith('/'):
+                mainjs_url = 'https://x.com' + mainjs_url
+
+            mainjs_resp = self.http.get(mainjs_url, timeout=30)
+            mainjs_content = mainjs_resp.text
+            logger.info(f"main.js 下载成功 ({len(mainjs_content)} 字节)")
+
+            INDICES_REGEX = re.compile(r"\(\w{1}\[(\d{1,2})\],\s*16\)")
+            key_byte_indices = [
+                int(m.group(1)) for m in INDICES_REGEX.finditer(mainjs_content)
+            ]
+            if key_byte_indices:
+                logger.info(f"从 main.js 提取到 {len(key_byte_indices)} 个 key_byte_indices")
+            return key_byte_indices
+
+        except Exception as e:
+            logger.warning(f"从 main.js 提取 key_byte_indices 失败: {e}")
             return None
 
     def generate_transaction_id(self, method: str, path: str) -> str:
