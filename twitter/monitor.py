@@ -188,7 +188,13 @@ class Monitor:
                         exc_info=future.exception(),
                     )
         except Exception as e:
-            error_msg = f"Error fetching posts: {type(e).__name__}: {e}"
+            error_msg = f"{type(e).__name__}: {e}"
+
+            # 账号池耗尽降级为警告，避免误报任务失败
+            if "No available accounts" in str(e):
+                logger.warning(f"账号池暂无可用，推迟抓取（将在下个周期重试）")
+                return {"new_posts": 0, "helpful_posts": 0, "errors": []}
+
             logger.error(error_msg, exc_info=True)
             if self.health_monitor:
                 self.health_monitor.record_task_failure(TaskName.CRAWL, error_msg, time.time() - start_time)
@@ -287,6 +293,13 @@ class Monitor:
                 except Exception as e:
                     pid = post.get('post_id') or post.get('tweet_id', 'unknown')
                     error_msg = f"{type(e).__name__}: {e}"
+
+                    # 账号池耗尽不是推文级别的错误，降级日志、不记失败状态
+                    if "No available accounts" in str(e):
+                        logger.warning(f"账号池暂无可用，推迟更新 {pid}（将在下个周期重试）")
+                        # 不记录 failed 状态，避免失败回补机制误触发
+                        return False
+
                     logger.error(
                         f"Failed to update {pid}: {error_msg}",
                         exc_info=True,
