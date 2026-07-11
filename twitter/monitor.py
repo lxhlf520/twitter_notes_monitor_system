@@ -153,7 +153,7 @@ class Monitor:
                 self.storage.save_helpful_post(post_data)
                 # 保存初始 Metrics
                 self.storage.save_helpful_metrics(self._extract_metrics(tweet, 'helpful'))
-                self._save_note_and_contributors(tweet.id)
+                self._save_note_and_contributors(tweet)
                 new_count += 1
                 logger.info(f"[HELPFUL] Captured tweet: {tweet.id}")
             elif source == "new" and not self.storage.new_post_exists(tweet.id):
@@ -163,7 +163,7 @@ class Monitor:
                 # 保存初始 Metrics
                 self.storage.save_new_metrics(self._extract_metrics(tweet, 'new'))
                 # 获取并保存 Note/Contributor 信息
-                self._save_note_and_contributors(tweet.id)
+                self._save_note_and_contributors(tweet)
                 helpful_count += 1
                 logger.info(f"[NEW] Captured tweet: {tweet.id}")
     
@@ -203,23 +203,23 @@ class Monitor:
     
     
 
-    def _save_note_and_contributors(self, tweet_id: str) -> None:
+    def _save_note_and_contributors(self, tweet: Tweet) -> None:
         """
         获取并保存特定推文的 Note 和 Contributor 信息
 
         Args:
-            tweet_id: 推文 ID
+            tweet: Tweet 对象（从 _data 中提取 Notes，无需额外 API 调用）
         """
         try:
-            note_data = self.client.communitynotes_detail(tweet_id)
+            note_data = self.client.communitynotes_detail(tweet.id, tweet._data)
             if note_data:
                 # 保存 Notes
                 self.storage.save_notes(note_data['notes'])
                 # 保存 Contributors
                 self.storage.save_contributors(note_data['contributors'])
-                logger.info(f"Saved {len(note_data['notes'])} notes for tweet {tweet_id}")
+                logger.info(f"Saved {len(note_data['notes'])} notes for tweet {tweet.id}")
         except Exception as e:
-            logger.debug(f"Failed to fetch notes for tweet {tweet_id}: {e}")
+            logger.debug(f"Failed to fetch notes for tweet {tweet.id}: {e}")
 
     def update_metrics_by_source(self, source: str) -> int:
         """

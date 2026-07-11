@@ -673,7 +673,7 @@ class Client:
         result['new'] = new_tweets or []
         return result
     
-    def communitynotes_detail(self, tweet_id: str) -> dict:
+    def communitynotes_detail(self, tweet_id: str, tweet_data: dict | None = None) -> dict:
         """
         获取 Community Notes 推文详情。
 
@@ -681,6 +681,9 @@ class Client:
         ----------
         tweet_id : str
             推文 ID
+        tweet_data : dict | None
+            可选的 tweet result 原始数据（由 Tweet._data 传入）。
+            提供此参数时直接从已有数据中提取，无需调用 BirdwatchFetchNotes API。
 
         Returns
         -------
@@ -688,6 +691,18 @@ class Client:
             包含 posts, notes, contributors 的解析结果
         """
         from ..parser import parse_note_data
+        
+        # 如果传入了 tweet_data，直接从已有数据中提取 notes
+        if tweet_data is not None:
+            api_response = {
+                "data": {
+                    "tweet_result_by_rest_id": {
+                        "result": tweet_data
+                    }
+                }
+            }
+            return parse_note_data(api_response)
+        
         if self.rpc_model:
             response = self.rpc_client.invoke("twitter", "BirdwatchFetchNotes", params={"tweet_id": tweet_id})
         else:
