@@ -391,7 +391,7 @@ class Monitor:
             "repost_count": tweet.retweet_count or 0,
             "like_count": tweet.favorite_count or 0,
             "view_count": tweet.view_count or 0,
-            "captured_at": int(datetime.utcnow().timestamp() * 1000),
+            "captured_at": datetime.utcnow(),
             "content": tweet.full_text,
             "url": tweet.url,
             "source_data": json.dumps(tweet._data, ensure_ascii=False),

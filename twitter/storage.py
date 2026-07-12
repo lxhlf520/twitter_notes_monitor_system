@@ -145,7 +145,7 @@ class Storage:
 
     def save_new_post(self, tweet_data: Dict[str, Any]) -> Any:
         """保存 new 源的推文基础信息"""
-        tweet_data["captured_at"] = int(datetime.utcnow().timestamp() * 1000)
+        tweet_data["captured_at"] = datetime.utcnow()
         post_id = tweet_data.get("post_id") or tweet_data.get("tweet_id")
         if post_id:
             return self._new_posts.insert_one(tweet_data)
@@ -153,7 +153,7 @@ class Storage:
 
     def save_new_metrics(self, metrics: Dict[str, Any]) -> Any:
         """保存 new 源的 metrics 数据（追加写入）"""
-        metrics["captured_at"] = int(datetime.utcnow().timestamp() * 1000)
+        metrics["captured_at"] = datetime.utcnow()
         return self._new_metrics.insert_one(metrics)
 
     def new_post_exists(self, post_id: str) -> bool:
@@ -169,7 +169,7 @@ class Storage:
 
     def save_helpful_post(self, tweet_data: Dict[str, Any]) -> Any:
         """保存 helpful 源的推文基础信息"""
-        tweet_data["captured_at"] = int(datetime.utcnow().timestamp() * 1000)
+        tweet_data["captured_at"] = datetime.utcnow()
         post_id = tweet_data.get("post_id") or tweet_data.get("tweet_id")
         if post_id:
             return self._helpful_posts.insert_one(tweet_data)
@@ -177,7 +177,7 @@ class Storage:
 
     def save_helpful_metrics(self, metrics: Dict[str, Any]) -> Any:
         """保存 helpful 源的 metrics 数据（追加写入）"""
-        metrics["captured_at"] = int(datetime.utcnow().timestamp() * 1000)
+        metrics["captured_at"] = datetime.utcnow()
         return self._helpful_metrics.insert_one(metrics)
 
     def helpful_post_exists(self, post_id: str) -> bool:
@@ -267,7 +267,7 @@ class Storage:
             collection = self._helpful_posts
             metrics_collection = self._helpful_metrics
 
-        all_posts = list(collection.find({}))
+        all_posts = list(collection.find({"deleted_at": {"$exists": False}}))
         posts_to_update = []
 
         for post in all_posts:
@@ -558,7 +558,7 @@ class Storage:
 
         doc: Dict[str, Any] = {
             "endpoint": endpoint,
-            "captured_at": int(datetime.utcnow().timestamp() * 1000),
+            "captured_at": datetime.utcnow(),
             "response": response,
         }
         if params is not None:
@@ -721,7 +721,7 @@ class Storage:
             "post_id": post_id,
             "source": source,
             "status": status,
-            "captured_at": int(datetime.utcnow().timestamp() * 1000),
+            "captured_at": datetime.utcnow(),
         }
         if error:
             record["error"] = error
@@ -804,7 +804,7 @@ class Storage:
 
         result = collection.update_one(
             {"post_id": post_id, "deleted_at": {"$exists": False}},
-            {"$set": {"deleted_at": int(datetime.utcnow().timestamp() * 1000)}}
+            {"$set": {"deleted_at": datetime.utcnow()}}
         )
         return result.modified_count > 0
 
