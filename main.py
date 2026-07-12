@@ -208,7 +208,7 @@ def main():
     else:
         logger.info("Health monitor disabled")
 
-    monitor = Monitor(client, storage, config["monitor"], task_mode=task_mode, health_monitor=health_monitor)
+    monitor = Monitor(client, storage, config["monitor"], task_mode=task_mode, health_monitor=health_monitor, account_pool=account_pool)
     logger.info(f"Task mode: {task_mode.value}")
     logger.info("Starting Community Notes Monitor...")
     logger.info(f"Crawl interval: {config['monitor']['note_crawl']}s, Update interval: {config['monitor']['metrics_update']}s")

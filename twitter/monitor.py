@@ -48,6 +48,7 @@ class Monitor:
         config: Optional[Dict[str, Any]] = None,
         task_mode: TaskMode = TaskMode.ALL,
         health_monitor: Optional[HealthMonitor] = None,
+        account_pool: Any = None,
     ):
         """
         初始化监控器
@@ -58,11 +59,13 @@ class Monitor:
             config: 更新频率配置，默认为 None 时使用默认值
             task_mode: 任务运行模式，默认为 ALL（同时运行两个任务）
             health_monitor: 健康监控器实例，如果为 None 则不进行健康监控
+            account_pool: AccountPool 实例（用于运行时同步新增账号）
         """
         self.client = client
         self.storage = storage
         self.task_mode = task_mode
         self.health_monitor = health_monitor
+        self.account_pool = account_pool
 
         # 默认配置 - 双源独立策略
         default_config = {
@@ -79,6 +82,8 @@ class Monitor:
             # 多线程配置
             'max_workers': 10,
             'fetch_parallel': True,
+            # 账号同步配置
+            'account_sync_interval': 21600,         # 6小时同步一次新增账号
         }
 
         if config:
@@ -494,6 +499,12 @@ class Monitor:
             health_interval = self.config.get('health_report_interval', 300)  # 默认 5 分钟
             schedule.every(health_interval).seconds.do(self.health_monitor.report)
             logger.info(f"Registered health monitor report (interval: {health_interval}s)")
+
+        # 注册账号池同步（非 RPC 模式且传入了 account_pool）
+        if self.account_pool:
+            sync_interval = self.config.get('account_sync_interval', 21600)
+            schedule.every(sync_interval).seconds.do(self.account_pool.sync_accounts_from_db)
+            logger.info(f"Registered account sync task (interval: {sync_interval}s = {sync_interval // 3600}h)")
 
         # 注册信号处理器用于优雅停止
         signal.signal(signal.SIGINT, self._signal_handler)

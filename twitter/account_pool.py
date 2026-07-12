@@ -406,6 +406,46 @@ class AccountPool:
         for account in self._accounts.values():
             self._update_account_in_db(account)
 
+    def sync_accounts_from_db(self) -> int:
+        """
+        从数据库同步新增账号到内存池，已有账号保持不变（运行时状态不重置）。
+
+        Returns:
+            本次新增的账号数量
+        """
+        accounts_data = self.storage.get_all_accounts()
+        added = 0
+        for data in accounts_data:
+            username = data.get('username')
+            if not username or username in self._accounts:
+                continue
+
+            # 兼容手动写入 MongoDB 时 enabled 为空字符串的情况
+            if "enabled" in data and not isinstance(data["enabled"], bool):
+                if isinstance(data["enabled"], str) and data["enabled"].strip():
+                    data["enabled"] = data["enabled"].lower() in ("true", "1", "yes")
+                else:
+                    data["enabled"] = True
+
+            # 确保 datetime 字段正确
+            for field in ['last_used_at', 'cooldown_until', 'created_at', 'updated_at']:
+                if field in data and data[field] and not isinstance(data[field], datetime):
+                    try:
+                        data[field] = datetime.fromisoformat(str(data[field]))
+                    except (ValueError, TypeError):
+                        data[field] = None
+
+            account = Account.model_validate(data)
+            self._accounts[account.username] = account
+            self._sessions[account.username] = AccountSession(account, self._proxy, storage=self.storage)
+            added += 1
+
+        if added > 0:
+            logger.info(f"同步新增了 {added} 个账号到内存池")
+        else:
+            logger.debug("账号同步检查: 无新增账号")
+        return added
+
     def _update_account_in_db(self, account: Account) -> None:
         """将单个账号更新到数据库"""
         self.storage.update_account_from_model(account)
