@@ -34,8 +34,14 @@ new_to_helpful_max_days = 14            # 变成helpful后追踪14天
 # helpful note 策略：间隔2小时，持续追踪14天
 helpful_interval_seconds = 7200   # 2小时
 helpful_max_days = 14             # 最多追踪14天
-# 工作线程数（当前50账号用10线程，crawl自动减半=5，update池各10）
-max_workers = 10
+# 线程池配置（各任务独立，不互相争抢）
+# crawl 数量: 列表抓取轻量，10 足够
+# update_new 数量: 新帖更新密集，分配 30
+# update_helpful 数量: helpful 更新量较少，20 足够
+max_workers = 60
+crawl_workers = 10
+update_new_workers = 30
+update_helpful_workers = 20
 [proxy]
 url = "http://127.0.0.1:7890"
 

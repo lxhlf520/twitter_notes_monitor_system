@@ -93,13 +93,13 @@ class Monitor:
 
         # 独立线程池，各任务互不干扰
         max_workers = self.config.get('max_workers', 10)
-        # crawl 列表抓取轻量，用一半线程即可
-        crawl_workers = max(2, max_workers // 2)
+        crawl_workers = self.config.get('crawl_workers', max(2, max_workers // 2))
+        update_new_workers = self.config.get('update_new_workers', max_workers)
+        update_helpful_workers = self.config.get('update_helpful_workers', max_workers)
         self._crawl_executor = ThreadPoolExecutor(max_workers=crawl_workers)
-        # update 密集型，集中线程保证按时完成
         self._update_executors = {
-            'new': ThreadPoolExecutor(max_workers=max_workers),
-            'helpful': ThreadPoolExecutor(max_workers=max_workers),
+            'new': ThreadPoolExecutor(max_workers=update_new_workers),
+            'helpful': ThreadPoolExecutor(max_workers=update_helpful_workers),
         }
 
     def run_cycle(self) -> Dict[str, Any]:
@@ -486,6 +486,9 @@ class Monitor:
                    f"new_to_helpful={self.config['new_to_helpful_interval_seconds']}s/{self.config['new_to_helpful_max_days']}d, "
                    f"helpful={self.config['helpful_interval_seconds']}s/{self.config['helpful_max_days']}d")
         logger.info(f"Multi-threading config: max_workers={self.config.get('max_workers', 10)}, "
+                   f"crawl={self.config.get('crawl_workers', 'auto')}, "
+                   f"update_new={self.config.get('update_new_workers', 'auto')}, "
+                   f"update_helpful={self.config.get('update_helpful_workers', 'auto')}, "
                    f"fetch_parallel={self.config.get('fetch_parallel', True)}")
 
         self._running = True
