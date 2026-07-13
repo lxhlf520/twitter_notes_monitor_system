@@ -91,9 +91,16 @@ class Monitor:
 
         self.config = default_config
 
-        # 线程池（类属性，生命周期与 Monitor 实例相同）
+        # 独立线程池，各任务互不干扰
         max_workers = self.config.get('max_workers', 10)
-        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        # crawl 列表抓取轻量，用一半线程即可
+        crawl_workers = max(2, max_workers // 2)
+        self._crawl_executor = ThreadPoolExecutor(max_workers=crawl_workers)
+        # update 密集型，集中线程保证按时完成
+        self._update_executors = {
+            'new': ThreadPoolExecutor(max_workers=max_workers),
+            'helpful': ThreadPoolExecutor(max_workers=max_workers),
+        }
 
     def run_cycle(self) -> Dict[str, Any]:
         """
@@ -180,10 +187,10 @@ class Monitor:
             new: List[Tweet] = result.get('new', []) or []
 
             futures = {
-                self._executor.submit(save_post, tweet, 'helpful'): 'helpful'
+                self._crawl_executor.submit(save_post, tweet, 'helpful'): 'helpful'
                 for tweet in helpful
             } | {
-                self._executor.submit(save_post, tweet, 'new'): 'new'
+                self._crawl_executor.submit(save_post, tweet, 'new'): 'new'
                 for tweet in new
             }
             for future in as_completed(futures):
@@ -344,7 +351,7 @@ class Monitor:
 
             # 使用类属性线程池并发更新
             future_to_post = {
-                self._executor.submit(update_single_post, post): post
+                self._update_executors[source].submit(update_single_post, post): post
                 for post in posts_to_update
             }
 
@@ -515,10 +522,11 @@ class Monitor:
             schedule.run_pending()
             time.sleep(1)  # 避免 CPU 空转
 
-        # 关闭线程池
-        if self._executor:
-            self._executor.shutdown(wait=True)
-            logger.info("Thread pool shutdown complete.")
+        # 关闭所有线程池
+        for name, executor in [('crawl', self._crawl_executor)] + list(self._update_executors.items()):
+            if executor:
+                executor.shutdown(wait=True)
+                logger.info(f"{name} thread pool shutdown complete.")
 
         logger.info("Monitor stopped.")
 
