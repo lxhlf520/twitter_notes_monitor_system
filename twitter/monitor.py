@@ -316,9 +316,17 @@ class Monitor:
                     pid = post.get('post_id') or post.get('tweet_id', 'unknown')
                     error_msg = f"{type(e).__name__}: {e}"
 
-                    # 账号池耗尽不是推文级别的错误，降级日志、不记失败状态
+                    # 账号池耗尽不是推文级别的错误，降级日志
                     if "No available accounts" in str(e):
                         logger.warning(f"账号池暂无可用，推迟更新 {pid}（将在下个周期重试）")
+                        # 需要记录失败状态以触发回补机制
+                        try:
+                            self.storage.save_update_record(
+                                pid, source, "failed",
+                                error="No available accounts"
+                            )
+                        except Exception:
+                            pass
                         return False
 
                     # 429 限流是账号级别问题（已强制冷却 60s），不记推文失败
