@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import logging
+import threading
 import time
 import signal
 from enum import Enum
@@ -502,15 +503,26 @@ class Monitor:
         self._running = True
         self._iteration = 0
 
-        # 根据任务模式注册调度任务
+        # 根据任务模式注册调度任务，加入初始偏移避免同时抢账号
         if self.task_mode in (TaskMode.CRAWL, TaskMode.ALL):
             schedule.every(self.config['note_crawl']).seconds.do(self.fetch_posts)
             logger.info(f"Registered note_crawl task (interval: {self.config['note_crawl']}s)")
 
         if self.task_mode in (TaskMode.UPDATE, TaskMode.ALL):
-            schedule.every(self.config['metrics_update']).seconds.do(self.update_metrics_by_source, 'new')
-            schedule.every(self.config['metrics_update']).seconds.do(self.update_metrics_by_source, 'helpful')
-            logger.info(f"Registered metrics_update task (interval: {self.config['metrics_update']}s)")
+            # update_new 延迟 3s 启动，避免与 crawl 同时抢账号
+            def _register_update_new():
+                schedule.every(self.config['metrics_update']).seconds.do(
+                    self.update_metrics_by_source, 'new'
+                )
+            threading.Timer(3, _register_update_new).start()
+
+            # update_helpful 延迟 6s 启动，进一步错峰
+            def _register_update_helpful():
+                schedule.every(self.config['metrics_update']).seconds.do(
+                    self.update_metrics_by_source, 'helpful'
+                )
+            threading.Timer(6, _register_update_helpful).start()
+            logger.info(f"Registered stagger metrics_update tasks (interval: {self.config['metrics_update']}s, offset 3s/6s)")
 
         # 注册健康监控定时报告
         if self.health_monitor:
