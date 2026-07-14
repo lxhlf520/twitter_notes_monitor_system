@@ -214,9 +214,9 @@ def main():
     logger.info(f"Crawl interval: {config['monitor']['note_crawl']}s, Update interval: {config['monitor']['metrics_update']}s")
     logger.info(
         "Update strategy: "
-        f"new={config['monitor']['new_interval_seconds']}s/{config['monitor']['new_max_days']}d, "
-        f"new_to_helpful={config['monitor']['new_to_helpful_interval_seconds']}s/{config['monitor']['new_to_helpful_max_days']}d, "
-        f"helpful={config['monitor']['helpful_interval_seconds']}s/{config['monitor']['helpful_max_days']}d"
+        f"new={config['monitor']['new_min_seconds']}s-{config['monitor']['new_max_seconds']}s/{config['monitor']['new_max_days']}d, "
+        f"new_to_helpful={config['monitor']['new_to_helpful_min_seconds']}s-{config['monitor']['new_to_helpful_max_seconds']}s/{config['monitor']['new_to_helpful_max_days']}d, "
+        f"helpful={config['monitor']['helpful_min_seconds']}s-{config['monitor']['helpful_max_seconds']}s/{config['monitor']['helpful_max_days']}d"
     )
 
     try:
