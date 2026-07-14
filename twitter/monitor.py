@@ -284,6 +284,12 @@ class Monitor:
             logger.info(f"Found {len(posts_to_update)} posts needing update for {source}")
 
             if not posts_to_update:
+                if self.health_monitor:
+                    self.health_monitor.record_task_success(
+                        task_name,
+                        {"source": source, "updated_count": 0},
+                        time.time() - start_time
+                    )
                 return 0
 
 
