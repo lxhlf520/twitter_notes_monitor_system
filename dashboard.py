@@ -151,18 +151,16 @@ def build_task_table(snapshot: dict) -> Panel:
 
     table = Table(box=box.SIMPLE_HEAD, expand=True, show_edge=False)
     table.add_column("Task", style="cyan", min_width=18)
-    table.add_column("Expected", justify="right", min_width=10)
-    table.add_column("Runs", justify="right", min_width=6)
-    table.add_column("OK", justify="right", min_width=6)
-    table.add_column("Fail", justify="right", min_width=6)
-    table.add_column("Rate", justify="right", min_width=7)
+    table.add_column("Interval", justify="right", min_width=10)
+    table.add_column("Runs", justify="right", min_width=5)
+    table.add_column("Success", justify="right", min_width=8)
+    table.add_column("Errors", justify="right", min_width=6)
     table.add_column("Overdue", justify="right", min_width=10)
-    table.add_column("Last Success", min_width=14)
-    table.add_column("Last Error", min_width=30)
+    table.add_column("Last Result", min_width=30)
+    table.add_column("Last Run", min_width=14)
 
     for task_name, h in task_health.items():
         expected = fmt_duration(h.get("expected_interval_seconds", 0))
-        rate = f"{h.get('success_rate', 0) * 100:.1f}%"
 
         is_overdue = h.get("is_overdue", False)
         overdue_secs = h.get("overdue_seconds", 0)
@@ -171,22 +169,37 @@ def build_task_table(snapshot: dict) -> Panel:
         else:
             overdue_text = Text("OK", style="bold green")
 
-        cf = h.get("consecutive_failures", 0)
-        fail_style = "bold red" if cf >= 3 else ""
-        last_err = h.get("last_error") or "--"
-        if len(last_err) > 40:
-            last_err = last_err[:40] + "…"
+        # 格式化上次结果
+        last_result = h.get("last_result") or {}
+        if task_name in ("crawl", "TaskName.CRAWL"):
+            if isinstance(last_result, dict):
+                new_p = last_result.get("new_posts", 0)
+                helpful_p = last_result.get("helpful_posts", 0)
+                if new_p or helpful_p:
+                    result_str = f"+{new_p} new +{helpful_p} helpful"
+                else:
+                    result_str = "no new posts"
+            else:
+                result_str = "--"
+        else:
+            count = last_result.get("updated_count", 0) if isinstance(last_result, dict) else 0
+            if count > 0:
+                result_str = f"{count} posts"
+            else:
+                result_str = "no posts"
+
+        err_count = h.get("fail_runs", 0)
+        fail_style = "bold red" if h.get("consecutive_failures", 0) >= 3 else ""
 
         table.add_row(
             task_name,
             expected,
             str(h.get("total_runs", 0)),
             str(h.get("success_runs", 0)),
-            Text(str(h.get("fail_runs", 0)), style=fail_style),
-            rate,
+            Text(str(err_count), style=fail_style),
             overdue_text,
+            result_str,
             time_ago(h.get("last_succeeded_at")),
-            Text(last_err, style="dim red" if last_err != "--" else "dim"),
         )
 
     return Panel(

@@ -388,12 +388,12 @@ class HealthMonitor:
         # ==================== 任务健康度 ====================
         logger.info("")
         logger.info("  [Task Health]")
-        logger.info("  " + "-" * 68)
+        logger.info("  " + "-" * 80)
         logger.info(
-            f"  {'Task':<18} {'Expected':>10} {'Runs':>5} {'Ok':>5} "
-            f"{'Fail':>5} {'Rate':>6} {'Overdue':>10}"
+            f"  {'Task':<18} {'Interval':>10} {'Runs':>5} {'Success':>8} "
+            f"{'Errors':>6} {'Overdue':>10}  {'Last Result'}"
         )
-        logger.info("  " + "-" * 68)
+        logger.info("  " + "-" * 80)
 
         for task_name, health in task_health_snapshot.items():
             expected = self._format_duration(health["expected_interval_seconds"])
@@ -401,25 +401,42 @@ class HealthMonitor:
             if health["is_overdue"]:
                 overdue_str = f"+{self._format_duration(health['overdue_seconds'])}"
 
-            rate_str = f"{health['success_rate'] * 100:.1f}%"
+            # 格式化上次结果
+            last_result = health.get("last_result") or {}
+            if task_name in ("crawl", "TaskName.CRAWL", TaskName.CRAWL):
+                if isinstance(last_result, dict):
+                    new_p = last_result.get("new_posts", 0)
+                    helpful_p = last_result.get("helpful_posts", 0)
+                    if new_p or helpful_p:
+                        result_str = f"+{new_p} new +{helpful_p} helpful"
+                    else:
+                        result_str = "no new posts"
+                else:
+                    result_str = "--"
+            else:
+                count = last_result.get("updated_count", 0) if isinstance(last_result, dict) else 0
+                if count > 0:
+                    result_str = f"{count} posts"
+                else:
+                    result_str = "no posts"
 
             logger.info(
                 f"  {task_name:<18} {expected:>10} {health['total_runs']:>5} "
-                f"{health['success_runs']:>5} {health['fail_runs']:>5} "
-                f"{rate_str:>6} {overdue_str:>10}"
+                f"{health['success_runs']:>8} {health['fail_runs']:>6} "
+                f"{overdue_str:>10}  {result_str:<30}"
             )
 
-            # 如果有连续失败，输出最后错误
-            if health["consecutive_failures"] > 0 and health.get("last_error"):
-                logger.info(f"    ↳ Last error: {health['last_error'][:80]}")
-
-            # 显示上次成功时间
+            # 显示上次执行时间
             if health.get("last_succeeded_at"):
                 last_ok = datetime.fromisoformat(health["last_succeeded_at"])
                 ago = (datetime.utcnow() - last_ok).total_seconds()
-                logger.info(f"    ↳ Last success: {self._format_duration(ago)} ago")
+                logger.info(f"    ↳ Last: {self._format_duration(ago)} ago")
 
-        logger.info("  " + "-" * 68)
+            # 如果有连续失败，输出最后错误
+            if health["consecutive_failures"] > 0 and health.get("last_error"):
+                logger.info(f"    ↳ Error: {health['last_error'][:80]}")
+
+        logger.info("  " + "-" * 80)
         logger.info("=" * 72)
         logger.info("")
 
