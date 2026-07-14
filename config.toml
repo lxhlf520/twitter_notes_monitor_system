@@ -23,16 +23,20 @@ save_raw_response = false
 note_crawl = 10  # 基础抓取间隔（秒）
 metrics_update = 10  # 基础更新间隔（秒）
 
-# new note 策略：每隔4小时抓一次，6天内未变helpful则停止
-new_interval_seconds = 14400      # 4小时
+# new note 策略：每次更新成功后随机在 [2h, 4h] 范围内选择下次更新时间
+# 随机化将大量 post 的到期时间在时间轴上自然摊开，避免集中争抢账号
+new_min_seconds = 7200
+new_max_seconds = 14400
 new_max_days = 6                  # 未变成helpful时最多追踪6天
 
-# new note 变成 helpful 后：间隔变为2小时，持续追踪14天
-new_to_helpful_interval_seconds = 7200  # 2小时
-new_to_helpful_max_days = 14            # 变成helpful后追踪14天
+# new note 变成 helpful 后：随机在 [1h, 2h] 范围内选择下次更新时间
+new_to_helpful_min_seconds = 3600
+new_to_helpful_max_seconds = 7200
+new_to_helpful_max_days = 14     # 变成helpful后追踪14天
 
-# helpful note 策略：间隔2小时，持续追踪14天
-helpful_interval_seconds = 7200   # 2小时
+# helpful note 策略：随机在 [2h, 4h] 范围内选择下次更新时间
+helpful_min_seconds = 7200
+helpful_max_seconds = 14400
 helpful_max_days = 14             # 最多追踪14天
 # 线程池配置（各任务独立，不互相争抢）
 # crawl 数量: 列表抓取轻量，10 足够

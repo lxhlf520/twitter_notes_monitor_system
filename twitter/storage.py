@@ -308,24 +308,32 @@ class Storage:
                     continue
                 interval_seconds = config.get('helpful_interval_seconds', 7200)
 
-            # 检查上次更新时间
+            # 检查上次更新时间，优先使用 next_update_at 动态间隔
             last_metrics = metrics_collection.find_one(
                 {"post_id": post_id},
                 sort=[("captured_at", -1)],
-                projection={"captured_at": 1, "_id": 0}
+                projection={"captured_at": 1, "next_update_at": 1, "_id": 0}
             )
 
-            # 如果没有 metrics 记录，或者距离上次更新已超过间隔，则需要更新
             needs_update = False
             if last_metrics is None:
+                # 没有 metrics 记录，需要首次更新
                 needs_update = True
             else:
-                last_captured_at = last_metrics['captured_at']
-                if isinstance(last_captured_at, (int, float)):
-                    last_captured_at = datetime.utcfromtimestamp(last_captured_at / 1000)
-                time_since_update = (now - last_captured_at).total_seconds()
-                if time_since_update >= interval_seconds:
-                    needs_update = True
+                # 优先使用 next_update_at 动态间隔（每次更新后随机计算）
+                next_update = last_metrics.get("next_update_at")
+                if next_update is not None:
+                    if isinstance(next_update, (int, float)):
+                        next_update = datetime.utcfromtimestamp(next_update / 1000)
+                    needs_update = next_update < now
+                else:
+                    # 回退到固定间隔逻辑（兼容旧数据）
+                    last_captured_at = last_metrics['captured_at']
+                    if isinstance(last_captured_at, (int, float)):
+                        last_captured_at = datetime.utcfromtimestamp(last_captured_at / 1000)
+                    time_since_update = (now - last_captured_at).total_seconds()
+                    if time_since_update >= interval_seconds:
+                        needs_update = True
 
             if not needs_update:
                 # 失败回补：如果最近一次更新状态是 "failed"，立即重试

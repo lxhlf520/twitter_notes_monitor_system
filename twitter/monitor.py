@@ -1,12 +1,13 @@
 from __future__ import annotations
 import json
 import logging
+import random
 import threading
 import time
 import signal
 from enum import Enum
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .client import Client
 from .storage import Storage
@@ -160,12 +161,20 @@ class Monitor:
         helpful_count = 0
         def save_post(tweet: Tweet, source: str):
             nonlocal new_count, helpful_count
+            # 首次保存时设置初始 next_update_at
+            init_metrics = self._extract_metrics(tweet, source)
+            init_next = self._calc_next_update_at(
+                {"tweet_id": tweet.id}, source
+            )
+            if init_next:
+                init_metrics['next_update_at'] = init_next
+
             if source == "helpful" and not self.storage.helpful_post_exists(tweet.id):
                 # 保存 Post 静态信息
                 post_data = self._tweet_to_post_data(tweet, 'helpful')
                 self.storage.save_helpful_post(post_data)
-                # 保存初始 Metrics
-                self.storage.save_helpful_metrics(self._extract_metrics(tweet, 'helpful'))
+                # 保存初始 Metrics（含动态间隔）
+                self.storage.save_helpful_metrics(init_metrics)
                 self._save_note_and_contributors(tweet)
                 new_count += 1
                 logger.info(f"[HELPFUL] Captured tweet: {tweet.id}")
@@ -173,8 +182,8 @@ class Monitor:
                 # self.storage.save_new_post(self._tweet_to_dict(tweet, source))
                 post_data = self._tweet_to_post_data(tweet, 'new')
                 self.storage.save_new_post(post_data)
-                # 保存初始 Metrics
-                self.storage.save_new_metrics(self._extract_metrics(tweet, 'new'))
+                # 保存初始 Metrics（含动态间隔）
+                self.storage.save_new_metrics(init_metrics)
                 # 获取并保存 Note/Contributor 信息
                 self._save_note_and_contributors(tweet)
                 helpful_count += 1
@@ -291,6 +300,12 @@ class Monitor:
                         metrics = self._extract_metrics(tweet, source)
                         # 使用 post_id 作为关联键
                         metrics['post_id'] = post_id
+
+                        # 动态间隔：计算下次更新的随机时间并写 metrics 字段
+                        next_update_at = self._calc_next_update_at(post, source)
+                        if next_update_at:
+                            metrics['next_update_at'] = next_update_at
+
                         if source == 'new':
                             self.storage.save_new_metrics(metrics)
                         else:
@@ -457,6 +472,43 @@ class Monitor:
             "created_at": tweet.created_at,
             "url": tweet.url
         }
+
+    def _calc_next_update_at(self, post: dict, source: str) -> Optional[datetime]:
+        """
+        根据配置的动态间隔范围 [min, max] 计算下次更新的随机时间。
+        将大量 post 的到期时间在时间轴上自然摊开，避免集中争抢账号。
+
+        Args:
+            post: 推文字典
+            source: 数据源（'new' / 'helpful'）
+
+        Returns:
+            下次更新时间（UTC），如果未配置动态间隔则返回 None
+        """
+        config = self.config
+        post_id = post.get('post_id') or post.get('tweet_id')
+
+        if source == 'new':
+            # new 源：根据是否已变成 helpful 选择不同范围
+            is_helpful = self.storage.is_new_post_become_helpful(post_id)
+            if is_helpful:
+                min_sec = config.get('new_to_helpful_min_seconds')
+                max_sec = config.get('new_to_helpful_max_seconds')
+            else:
+                min_sec = config.get('new_min_seconds')
+                max_sec = config.get('new_max_seconds')
+        else:
+            min_sec = config.get('helpful_min_seconds')
+            max_sec = config.get('helpful_max_seconds')
+
+        if min_sec is None or max_sec is None:
+            # 未配置动态间隔，回退到固定间隔
+            return None
+
+        interval = random.randint(min_sec, max_sec)
+        next_time = datetime.utcnow() + timedelta(seconds=interval)
+        return next_time
+
 
     def _extract_metrics(self, tweet: Tweet, source: str) -> dict:
         """
