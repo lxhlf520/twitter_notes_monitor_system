@@ -245,11 +245,13 @@ class Monitor:
         """
         获取并保存特定推文的 Note 和 Contributor 信息
 
+        调用 BirdwatchFetchNotes API 获取完整的 Note 数据（含作者信息）。
+
         Args:
-            tweet: Tweet 对象（从 _data 中提取 Notes，无需额外 API 调用）
+            tweet: Tweet 对象
         """
         try:
-            note_data = self.client.communitynotes_detail(tweet.id, tweet._data)
+            note_data = self.client.communitynotes_detail(tweet.id)
             if note_data:
                 # 保存 Notes
                 self.storage.save_notes(note_data['notes'])
