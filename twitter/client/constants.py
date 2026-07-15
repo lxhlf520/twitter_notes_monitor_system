@@ -169,6 +169,28 @@ APPEND_EXPORT_VALUES = {
             "fieldToggles": []
         }
     },
+    "BirdwatchFetchNotes": {
+        "queryId": "-ZtpeA6Jwx93AcIY42pCZA",
+        "operationName": "BirdwatchFetchNotes",
+        "operationType": "query",
+        "metadata": {
+            "featureSwitches": [
+                "responsive_web_birdwatch_live_note_enabled",
+                "responsive_web_birdwatch_enforce_author_user_quotas",
+                "responsive_web_birdwatch_media_notes_enabled",
+                "responsive_web_grok_community_note_translation_is_enabled",
+                "responsive_web_grok_community_note_auto_translation_is_enabled",
+                "responsive_web_graphql_timeline_navigation_enabled",
+                "profile_label_improvements_pcf_label_in_post_enabled",
+                "responsive_web_profile_redirect_enabled",
+                "rweb_tipjar_consumption_enabled",
+                "verified_phone_label_enabled",
+                "responsive_web_graphql_skip_user_profile_image_extensions_enabled",
+                "responsive_web_enhance_cards_enabled"
+            ],
+            "fieldToggles": []
+        }
+    },
     "GenericTimelineById": {
         "queryId": "VrAHfTlEBd6qq1IJlOvBqQ",
         "operationName": "GenericTimelineById",
