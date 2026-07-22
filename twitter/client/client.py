@@ -158,26 +158,22 @@ class Client:
         resp = self.http.get('https://x.com/', headers=headers, timeout=30)
         soup = BeautifulSoup(resp.text, 'html.parser')
 
-        # 查找 main.js 和 shared.js URL
-        mainjs_url = None
-        sharedjs_url = None
+        # 查找 JS bundle URL（x.com 曾用 main.js/shared.js，现改用 entry-client 单 bundle）
+        js_urls = []
         for script in soup.select('script[src]'):
             src = script.get('src', '')
-            if '/main.' in src and src.endswith('.js'):
-                mainjs_url = src
-            elif 'shared~bundle' in src and src.endswith('.js'):
-                sharedjs_url = src
+            if src.endswith('.js'):
+                # 匹配 main.js / shared~bundle / entry-client 等格式
+                if any(kw in src for kw in ('/main.', 'shared~bundle', 'entry-client')):
+                    js_urls.append(src)
 
         # fallback: 从 link preload 查找
-        if not mainjs_url:
-            for link in soup.select('link[as="script"][href*="/main."]'):
-                mainjs_url = link.get('href')
-                break
+        if not js_urls:
+            for link in soup.select('link[as="script"]'):
+                href = link.get('href', '')
+                if href.endswith('.js'):
+                    js_urls.append(href)
 
-        if not mainjs_url:
-            raise Exception("无法从页面中找到 main.js URL")
-
-        # 补全 URL
         def _resolve_url(url):
             if url.startswith('//'):
                 return 'https:' + url
@@ -185,41 +181,22 @@ class Client:
                 return 'https://x.com' + url
             return url
 
-        mainjs_url = _resolve_url(mainjs_url)
-        if sharedjs_url:
-            sharedjs_url = _resolve_url(sharedjs_url)
-
-        # 下载 JS bundles
-        mainjs_content = None
-        sharedjs_content = None
-        try:
-            mainjs_resp = self.http.get(mainjs_url, headers=headers, timeout=30)
-            mainjs_content = mainjs_resp.text
-        except Exception as e:
-            logger.warning(f"下载 main.js 失败: {e}")
-
-        if mainjs_content and sharedjs_url:
-            try:
-                sharedjs_resp = self.http.get(sharedjs_url, headers=headers, timeout=30)
-                sharedjs_content = sharedjs_resp.text
-            except Exception as e:
-                logger.warning(f"下载 shared.js 失败: {e}")
-
-        # 使用 exejs 提取导出值
+        # 下载 JS bundles 并用 exejs 提取
         export_values = {}
-        if mainjs_content:
+        if js_urls:
             import exejs
-            try:
-                export1 = exejs.compile(JSCODE % mainjs_content).call("getExportValues")
-                export_values.update(export1)
-            except Exception as e:
-                logger.warning(f"main.js exejs 解析失败: {e}")
-            if sharedjs_content:
+            for js_url in js_urls:
+                full_url = _resolve_url(js_url)
+                logger.info(f"尝试从 {full_url.split('/')[-1][:60]} 提取端点参数...")
                 try:
-                    export2 = exejs.compile(JSCODE % sharedjs_content).call("getExportValues")
-                    export_values.update(export2)
+                    js_resp = self.http.get(full_url, headers=headers, timeout=30)
+                    js_content = js_resp.text
+                    exports = exejs.compile(JSCODE % js_content).call("getExportValues")
+                    if exports:
+                        export_values.update(exports)
+                        logger.info(f"从 {js_url.split('/')[-1][:40]} 提取到 {len(exports)} 个端点")
                 except Exception as e:
-                    logger.warning(f"shared.js exejs 解析失败: {e}")
+                    logger.warning(f"{js_url.split('/')[-1][:40]} 提取失败: {e}")
 
         # 用硬编码端点参数兜底：若 JS 提取为空则完全替换，否则补充缺失的端点
         if not export_values:
