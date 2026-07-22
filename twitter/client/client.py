@@ -469,7 +469,13 @@ class Client:
         if 'errors' in response:
             raise TweetNotAvailable(response['errors'][0]['message'])
 
-        entries = find_dict(response, 'entries', find_one=True)[0]
+        if 'data' not in response:
+            raise TweetNotAvailable('响应缺少 data 字段（端点参数缺失或请求失败）')
+
+        entries = find_dict(response, 'entries', find_one=True)
+        if not entries:
+            raise TweetNotAvailable('响应中未找到 entries')
+        entries = entries[0]
         reply_to = []
         replies_list = []
         related_tweets = []
