@@ -50,6 +50,7 @@ class AccountSession:
         self.account = account
         self.storage = storage
         self.http = Session(proxy=proxy, impersonate="chrome131")
+        self._http_fallback = None  # SSLError 时懒初始化
         if isinstance(account.cookie, str):
             self.cookies = account.cookie
             self.cookies_dict = cookie_str_to_dict(account.cookie)

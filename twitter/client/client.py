@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 from curl_cffi.requests import Session, Response
+from curl_cffi.requests.exceptions import SSLError as CurlSSLError
 from ..errors import TweetNotAvailable
 from ..tweet import Tweet, tweet_from_data
 from ..errors import (
@@ -106,6 +107,7 @@ class Client:
                 proxy=proxy,
                 impersonate="chrome131"
             )
+            self._http_fallback = Session(proxy=proxy)  # 无 impersonate 的降级 Session
             self.gql = GQLClient(self)
             self.cookies_dict = {}
             self.cookies = ""
@@ -275,10 +277,22 @@ class Client:
         headers['X-Client-Transaction-Id'] = tid
 
         # 使用账号独立 Session 或默认 Session 发送请求
-        if acct_session:
-            response = acct_session.http.request(method, url, headers=headers, cookies=acct_session.cookies_dict, **kwargs)
-        else:
-            response = self.http.request(method, url, headers=headers, cookies=self.cookies_dict, **kwargs)
+        try:
+            if acct_session:
+                response = acct_session.http.request(method, url, headers=headers, cookies=acct_session.cookies_dict, **kwargs)
+            else:
+                response = self.http.request(method, url, headers=headers, cookies=self.cookies_dict, **kwargs)
+        except CurlSSLError:
+            logger.warning(f"SSLError, 降级为无 TLS 指纹重试: {url}")
+            try:
+                if acct_session:
+                    if acct_session._http_fallback is None:
+                        acct_session._http_fallback = Session(proxy=self.proxy)
+                    response = acct_session._http_fallback.request(method, url, headers=headers, cookies=acct_session.cookies_dict, **kwargs)
+                else:
+                    response = self._http_fallback.request(method, url, headers=headers, cookies=self.cookies_dict, **kwargs)
+            except Exception:
+                raise
 
         try:
             response_data = response.json()
