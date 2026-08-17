@@ -28,6 +28,24 @@ def parse_dt(val):
     return None
 
 
+def sum_delta(values):
+    """对按时间升序排列的累计计数器求真实增量之和。
+
+    快照里的 total_runs 是进程启动以来的累计值，重启后清零；
+    直接求和会被重启/运行时长污染。按相邻差值累加，
+    遇到清零（cur < prev）说明进程重启，把当前值作为新起点计入。
+    """
+    total = 0
+    prev = None
+    for cur in values:
+        if prev is None or cur < prev:
+            total += cur
+        else:
+            total += cur - prev
+        prev = cur
+    return total
+
+
 def main():
     days = int(sys.argv[1]) if len(sys.argv) > 1 else 30
 
@@ -95,9 +113,10 @@ def main():
         restarts = sum(1 for i in range(1, len(rec["uptimes"])) if rec["uptimes"][i] < rec["uptimes"][i-1])
         parts = [f"{day:<12} {restarts:<8} |"]
         for tname in ("crawl", "update_new", "update_helpful"):
-            runs = sum(t.get("total_runs", 0) for t in rec["tasks"][tname])
-            succ = sum(t.get("success_runs", 0) for t in rec["tasks"][tname])
-            fail = sum(t.get("fail_runs", 0) for t in rec["tasks"][tname])
+            # 累计计数器 → 差值求和，得到当天真实运行/成功/失败次数（重启不污染）
+            runs = sum_delta([t.get("total_runs", 0) for t in rec["tasks"][tname]])
+            succ = sum_delta([t.get("success_runs", 0) for t in rec["tasks"][tname]])
+            fail = sum_delta([t.get("fail_runs", 0) for t in rec["tasks"][tname]])
             parts.append(f" {runs:>10} {succ:>7} {fail:>7} |")
         print("".join(parts))
 
@@ -122,7 +141,7 @@ def main():
         rec = per_day[day]
         row = []
         for tname, label in (("crawl", "crawl"), ("update_new", "update_new"), ("update_helpful", "update_helpful")):
-            fail = sum(t.get("fail_runs", 0) for t in rec["tasks"][tname])
+            fail = sum_delta([t.get("fail_runs", 0) for t in rec["tasks"][tname]])
             if fail > 0:
                 row.append(f"{label}={fail}")
         if row:
