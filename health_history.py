@@ -132,6 +132,47 @@ def main():
         print(f"{day:<12} {last_acc.get('total', 0):>5} {last_acc.get('available', 0):>5} "
               f"{last_acc.get('cooldown', 0):>5} {last_acc.get('disabled', 0):>5} | {len(rec['accounts'])}")
 
+    # ---------- Post 更新次数全景 ----------
+    # x_com_post_update_status 每次 post 更新写一条记录，是更新量的完整台账
+    update_coll = storage._db["x_com_post_update_status"]
+    # MongoDB 存的是 naive UTC datetime，cutoff 需去掉时区信息才能正确比较
+    cutoff_dt = cutoff.replace(tzinfo=None) if cutoff.tzinfo else cutoff
+    pipeline = [
+        {"$match": {"captured_at": {"$gte": cutoff_dt}}},
+        {"$group": {
+            "_id": {
+                "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$captured_at"}},
+                "source": "$source",
+                "status": "$status",
+            },
+            "count": {"$sum": 1},
+        }},
+    ]
+    per_day_updates = {}
+    for r in update_coll.aggregate(pipeline):
+        g = r["_id"]
+        day = g["day"][5:]  # MM-DD
+        per_day_updates.setdefault(day, {}).setdefault(g["source"], {})[g["status"]] = r["count"]
+
+    print(f"\n{'='*100}")
+    print("Post 更新次数全景（x_com_post_update_status 逐条更新台账，UTC 日期）")
+    print('='*100)
+    print(f"{'日期':<12} | {'new 成功':>10} {'new 失败':>8} | "
+          f"{'helpful 成功':>12} {'helpful 失败':>10} | {'当日总更新':>10}")
+    print('='*100)
+    total_updates = 0
+    for day in sorted(per_day_updates):
+        rec = per_day_updates[day]
+        n_ok = rec.get("new", {}).get("success", 0)
+        n_fail = sum(v for k, v in rec.get("new", {}).items() if k != "success")
+        h_ok = rec.get("helpful", {}).get("success", 0)
+        h_fail = sum(v for k, v in rec.get("helpful", {}).items() if k != "success")
+        day_total = n_ok + n_fail + h_ok + h_fail
+        total_updates += day_total
+        print(f"{day:<12} | {n_ok:>10} {n_fail:>8} | {h_ok:>12} {h_fail:>10} | {day_total:>10}")
+    print('='*100)
+    print(f"查询范围内 post 更新总次数: {total_updates}")
+
     # ---------- 失败任务的日子 ----------
     print(f"\n{'='*100}")
     print("任务失败日明细（当日失败次数 > 0 的天）:")
