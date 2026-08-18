@@ -550,10 +550,17 @@ class Monitor:
 
         logger.info(f"Starting Community Notes Monitor...")
         logger.info(f"Task mode: {self.task_mode.value}")
+        # 打印实际生效的更新间隔：优先动态区间 [min, max]，未配置时回退固定间隔
+        def _fmt_interval(min_key: str, max_key: str, fixed_key: str) -> str:
+            mn = self.config.get(min_key)
+            mx = self.config.get(max_key)
+            if mn is not None and mx is not None:
+                return f"{mn}s-{mx}s"
+            return f"{self.config.get(fixed_key, '?')}s"
         logger.info(f"Update strategy: "
-                   f"new={self.config['new_interval_seconds']}s/{self.config['new_max_days']}d, "
-                   f"new_to_helpful={self.config['new_to_helpful_interval_seconds']}s/{self.config['new_to_helpful_max_days']}d, "
-                   f"helpful={self.config['helpful_interval_seconds']}s/{self.config['helpful_max_days']}d")
+                   f"new={_fmt_interval('new_min_seconds', 'new_max_seconds', 'new_interval_seconds')}/{self.config['new_max_days']}d, "
+                   f"new_to_helpful={_fmt_interval('new_to_helpful_min_seconds', 'new_to_helpful_max_seconds', 'new_to_helpful_interval_seconds')}/{self.config['new_to_helpful_max_days']}d, "
+                   f"helpful={_fmt_interval('helpful_min_seconds', 'helpful_max_seconds', 'helpful_interval_seconds')}/{self.config['helpful_max_days']}d")
         logger.info(f"Multi-threading config: max_workers={self.config.get('max_workers', 10)}, "
                    f"crawl={self.config.get('crawl_workers', 'auto')}, "
                    f"update_new={self.config.get('update_new_workers', 'auto')}, "

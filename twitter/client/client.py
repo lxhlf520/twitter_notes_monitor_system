@@ -283,16 +283,14 @@ class Client:
             else:
                 response = self.http.request(method, url, headers=headers, cookies=self.cookies_dict, **kwargs)
         except CurlSSLError:
-            logger.warning(f"SSLError, 降级为无 TLS 指纹重试: {url}")
-            try:
-                if acct_session:
-                    if acct_session._http_fallback is None:
-                        acct_session._http_fallback = Session(proxy=self.proxy)
-                    response = acct_session._http_fallback.request(method, url, headers=headers, cookies=acct_session.cookies_dict, **kwargs)
-                else:
-                    response = self._http_fallback.request(method, url, headers=headers, cookies=self.cookies_dict, **kwargs)
-            except Exception:
-                raise
+            # 间歇性 TLS 错误：用原 Session（保留 chrome131 指纹）重试一次。
+            # 不再降级为无指纹 Session：无指纹请求会被 x.com 反爬拦截
+            # （403 code 353 csrf mismatch），降级重试必败且污染账号失败计数。
+            logger.warning(f"SSLError, 使用原 Session（保留 TLS 指纹）重试一次: {url}")
+            if acct_session:
+                response = acct_session.http.request(method, url, headers=headers, cookies=acct_session.cookies_dict, **kwargs)
+            else:
+                response = self.http.request(method, url, headers=headers, cookies=self.cookies_dict, **kwargs)
 
         try:
             response_data = response.json()
